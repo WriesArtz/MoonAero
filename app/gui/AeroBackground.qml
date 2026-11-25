@@ -1,78 +1,139 @@
 import QtQuick 2.9
 import QtQuick.Window 2.2
 
-// Frutiger Aero backdrop: sky gradient, soft sun glow, light rays,
-// two rolling hills and slowly rising soap bubbles.
+// Frutiger Aero backdrop: sky gradient, sun glow, light rays, two rolling hills and
+// slowly rising soap bubbles. The user can put an image, GIF or video on top of the
+// sky; if it cannot be loaded the sky simply stays visible.
+//
+// `backdrop` is a blurred copy of the whole scene. The glass panels (AeroGlassFx)
+// show cropped pieces of it, which is what makes them look like frosted liquid glass.
 Item {
     id: root
 
     AeroPalette { id: aero }
 
-    // Sky
-    Rectangle {
+    readonly property Item backdrop: blurLoader.item
+    readonly property bool wallpaperReady: wallpaperLoader.status === Loader.Ready
+                                           && wallpaperLoader.item !== null && wallpaperLoader.item.ready
+
+    // Publish the backdrop on the window so panels anywhere (dialogs, menus) can find it
+    function publish() {
+        var w = Window.window
+        if (w && w.aeroBackdrop !== undefined)
+            w.aeroBackdrop = blurLoader.item
+    }
+    Component.onCompleted: publish()
+    Component.onDestruction: { var w = Window.window; if (w && w.aeroBackdrop !== undefined) w.aeroBackdrop = null }
+
+    // Everything that gets blurred: sky + wallpaper + dimming
+    Item {
+        id: scene
         anchors.fill: parent
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: aero.scheme.top }
-            GradientStop { position: 0.55; color: aero.scheme.mid }
-            GradientStop { position: 1.0; color: aero.scheme.bottom }
-        }
-    }
 
-    // Sun glow: concentric translucent discs fake a radial gradient
-    Repeater {
-        model: 6
-        delegate: Rectangle {
-            property real base: Math.max(root.width, root.height) * 0.55
-            width: base * (1.0 - index * 0.15)
-            height: width
-            radius: width / 2
-            x: root.width * 0.18 - width / 2
-            y: -root.height * 0.10 - height / 2 + base * 0.15
-            color: aero.withAlpha("#ffffff", 0.045)
-        }
-    }
-
-    // Light rays
-    Repeater {
-        model: 3
-        delegate: Rectangle {
-            width: root.width * (0.10 + index * 0.05)
-            height: root.height * 1.6
-            x: root.width * (0.05 + index * 0.17)
-            y: -root.height * 0.3
-            rotation: 24
-            transformOrigin: Item.Top
+        // Sky
+        Rectangle {
+            anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0.0; color: aero.withAlpha("#ffffff", 0.14) }
-                GradientStop { position: 1.0; color: aero.withAlpha("#ffffff", 0.0) }
+                GradientStop { position: 0.0; color: aero.scheme.top }
+                GradientStop { position: 0.55; color: aero.scheme.mid }
+                GradientStop { position: 1.0; color: aero.scheme.bottom }
             }
         }
+
+        // Sun glow: concentric translucent discs fake a radial gradient
+        Repeater {
+            model: 6
+            delegate: Rectangle {
+                property real base: Math.max(root.width, root.height) * 0.55
+                width: base * (1.0 - index * 0.15)
+                height: width
+                radius: width / 2
+                x: root.width * 0.18 - width / 2
+                y: -root.height * 0.10 - height / 2 + base * 0.15
+                color: aero.withAlpha("#ffffff", 0.045)
+            }
+        }
+
+        // Light rays
+        Repeater {
+            model: 3
+            delegate: Rectangle {
+                width: root.width * (0.10 + index * 0.05)
+                height: root.height * 1.6
+                x: root.width * (0.05 + index * 0.17)
+                y: -root.height * 0.3
+                rotation: 24
+                transformOrigin: Item.Top
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: aero.withAlpha("#ffffff", 0.14) }
+                    GradientStop { position: 1.0; color: aero.withAlpha("#ffffff", 0.0) }
+                }
+            }
+        }
+
+        // Hills: the top arcs of two huge circles that are mostly off-screen
+        Rectangle {
+            width: root.width * 1.5
+            height: width
+            radius: width / 2
+            x: -root.width * 0.35
+            y: root.height - root.height * 0.13
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: aero.withAlpha(Qt.lighter(aero.scheme.bottom, 1.2), 0.45) }
+                GradientStop { position: 0.2; color: aero.withAlpha(aero.scheme.bottom, 0.30) }
+                GradientStop { position: 1.0; color: aero.withAlpha(aero.scheme.bottom, 0.0) }
+            }
+        }
+        Rectangle {
+            width: root.width * 1.3
+            height: width
+            radius: width / 2
+            x: root.width * 0.30
+            y: root.height - root.height * 0.08
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: aero.withAlpha(Qt.darker(aero.scheme.bottom, 1.15), 0.50) }
+                GradientStop { position: 0.2; color: aero.withAlpha(Qt.darker(aero.scheme.bottom, 1.3), 0.30) }
+                GradientStop { position: 1.0; color: aero.withAlpha(aero.scheme.bottom, 0.0) }
+            }
+        }
+
+
+        // Wallpaper (image / GIF / video). Loaded lazily: a missing QtMultimedia module or a
+        // broken file just leaves the sky showing.
+        Loader {
+            id: wallpaperLoader
+            anchors.fill: parent
+            active: aero.wallpaper.toString() !== ""
+            source: aero.wallpaperKind === "video" ? "AeroWallpaperVideo.qml" : "AeroWallpaperImage.qml"
+            onLoaded: item.source = Qt.binding(function() { return aero.wallpaper })
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: "#000000"
+            visible: root.wallpaperReady
+            opacity: aero.wallpaperDim
+        }
     }
 
-    // Hills: the top arcs of two huge circles that are mostly off-screen
-    Rectangle {
-        width: root.width * 1.5
-        height: width
-        radius: width / 2
-        x: -root.width * 0.35
-        y: root.height - root.height * 0.13
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: aero.withAlpha(Qt.lighter(aero.scheme.bottom, 1.2), 0.45) }
-            GradientStop { position: 0.2; color: aero.withAlpha(aero.scheme.bottom, 0.30) }
-            GradientStop { position: 1.0; color: aero.withAlpha(aero.scheme.bottom, 0.0) }
-        }
+    ShaderEffectSource {
+        id: sceneSource
+        sourceItem: scene
+        width: root.width
+        height: root.height
+        visible: false
+        live: true
+        smooth: true
     }
-    Rectangle {
-        width: root.width * 1.3
-        height: width
-        radius: width / 2
-        x: root.width * 0.30
-        y: root.height - root.height * 0.08
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: aero.withAlpha(Qt.darker(aero.scheme.bottom, 1.15), 0.50) }
-            GradientStop { position: 0.2; color: aero.withAlpha(Qt.darker(aero.scheme.bottom, 1.3), 0.30) }
-            GradientStop { position: 1.0; color: aero.withAlpha(aero.scheme.bottom, 0.0) }
-        }
+
+    // The backdrop. Kept in the scene graph (but never shown) so panels can sample it.
+    Loader {
+        id: blurLoader
+        anchors.fill: parent
+        z: -1
+        opacity: 0.0
+        source: "AeroBackdropBlur.qml"
+        onLoaded: { item.source = sceneSource; item.amount = Qt.binding(function() { return aero.blur }); root.publish() }
     }
 
     // Soap bubbles

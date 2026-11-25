@@ -158,12 +158,15 @@ public:
     Q_PROPERTY(CaptureSysKeysMode captureSysKeysMode MEMBER captureSysKeysMode NOTIFY captureSysKeysModeChanged)
     Q_PROPERTY(Language language MEMBER language NOTIFY languageChanged);
 
-    // Frutiger Aero theme (all five share a single change signal)
+    // Frutiger Aero theme (all of them share a single change signal)
     Q_PROPERTY(bool aeroEnabled MEMBER aeroEnabled NOTIFY aeroChanged)
     Q_PROPERTY(int aeroPreset MEMBER aeroPreset NOTIFY aeroChanged)
     Q_PROPERTY(QString aeroCustomColor MEMBER aeroCustomColor NOTIFY aeroChanged)
     Q_PROPERTY(int aeroGlass MEMBER aeroGlass NOTIFY aeroChanged)
     Q_PROPERTY(bool aeroBubbles MEMBER aeroBubbles NOTIFY aeroChanged)
+    Q_PROPERTY(int aeroBlur MEMBER aeroBlur NOTIFY aeroChanged)
+    Q_PROPERTY(QString aeroWallpaper MEMBER aeroWallpaper NOTIFY aeroChanged)
+    Q_PROPERTY(int aeroWallpaperDim MEMBER aeroWallpaperDim NOTIFY aeroChanged)
 
     Q_INVOKABLE bool retranslate();
 
@@ -212,6 +215,9 @@ public:
     QString aeroCustomColor;
     int aeroGlass;
     bool aeroBubbles;
+    int aeroBlur;
+    QString aeroWallpaper;
+    int aeroWallpaperDim;
 
 signals:
     void displayModeChanged();

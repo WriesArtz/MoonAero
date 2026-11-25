@@ -73,3 +73,21 @@ Nota: si `master` de moonlight-android avanzó y el parche no aplica, usa el com
 - **Android**: los recursos compilan con `aapt`, el paquete `com.limelight.aero` compila sin avisos y las ediciones a archivos existentes no añaden errores de compilación. La matemática de color da lo mismo que Qt (diferencia máxima 1/255).
 - **Pendiente de tu lado**: no se pudo ejecutar en un Mac ni en un dispositivo Android desde este entorno. Prueba visual y de mandos/TV recomendada.
 - Limitación conocida (Android): los diálogos del sistema (listas de opciones, avisos) conservan el estilo Material estándar.
+
+## Liquid glass and wallpaper (v2)
+
+**Liquid glass.** Panels, tiles, dialogs, menus and toolbar buttons now show a *blurred copy of the
+background* through a rounded, softly tinted pane (frosted glass), with a specular rim that is brightest
+at the top-left and bottom-right, a soft inner glow, diffuse shadows, and springy hover/press motion
+(tiles and buttons overshoot slightly, then settle). Settings → Appearance → **Glass blur** (0–100 %)
+controls the frost; 0 gives plain translucent glass. The blur is computed once per frame for the whole
+window and cropped per panel, so many panels stay cheap. It needs `QtQuick.Effects` (Qt 6.5+); if it is
+missing the glass falls back to the translucent look automatically.
+
+**Wallpaper.** Settings → Appearance → *Choose image, GIF or video…* accepts PNG/JPG/BMP/WebP, GIF/APNG/animated
+WebP and MP4/MOV/M4V/WEBM/MKV. It replaces the sky, is cropped to fill, can be dimmed (0–80 %), and pauses
+while the window is in the background or while streaming. *Remove* returns to the sky. If a file cannot be
+loaded, the sky stays visible. Videos are silent and loop. `QT += multimedia` was added to `app/app.pro`;
+video codecs depend on the platform backend (macOS: AVFoundation, so H.264/HEVC .mp4/.mov are the safest).
+
+New settings keys: `aeroblur`, `aerowallpaper`, `aerowallpaperdim`.

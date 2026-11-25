@@ -1448,6 +1448,81 @@ Flickable {
                     }
                 }
 
+                Label {
+                    width: parent.width
+                    text: qsTr("Glass blur: %1%").arg(StreamingPreferences.aeroBlur)
+                    font.pointSize: 12
+                    wrapMode: Text.Wrap
+                    visible: aeroEnabledCheck.checked
+                }
+
+                Slider {
+                    width: parent.width
+                    visible: aeroEnabledCheck.checked
+                    from: 0
+                    to: 100
+                    stepSize: 5
+                    value: StreamingPreferences.aeroBlur
+                    onMoved: StreamingPreferences.aeroBlur = Math.round(value)
+                }
+
+                Label {
+                    width: parent.width
+                    visible: aeroEnabledCheck.checked
+                    text: StreamingPreferences.aeroWallpaper === ""
+                          ? qsTr("Wallpaper: none (sky)")
+                          : qsTr("Wallpaper: %1").arg(StreamingPreferences.aeroWallpaper.replace(/\\/g, "/").split("/").pop())
+                    font.pointSize: 12
+                    elide: Text.ElideMiddle
+                }
+
+                Row {
+                    spacing: 10
+                    visible: aeroEnabledCheck.checked
+
+                    Button {
+                        text: qsTr("Choose image, GIF or video...")
+                        onClicked: {
+                            if (!wallpaperPickerLoader.item) wallpaperPickerLoader.active = true
+                            if (wallpaperPickerLoader.item) wallpaperPickerLoader.item.open()
+                        }
+                    }
+
+                    Button {
+                        text: qsTr("Remove")
+                        enabled: StreamingPreferences.aeroWallpaper !== ""
+                        onClicked: StreamingPreferences.aeroWallpaper = ""
+                    }
+                }
+
+                Loader {
+                    id: wallpaperPickerLoader
+                    active: false
+                    source: "AeroWallpaperPicker.qml"
+                    onLoaded: {
+                        item.picked.connect(function(path) { StreamingPreferences.aeroWallpaper = path })
+                        item.open()
+                    }
+                }
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Wallpaper dimming: %1%").arg(StreamingPreferences.aeroWallpaperDim)
+                    font.pointSize: 12
+                    wrapMode: Text.Wrap
+                    visible: aeroEnabledCheck.checked && StreamingPreferences.aeroWallpaper !== ""
+                }
+
+                Slider {
+                    width: parent.width
+                    visible: aeroEnabledCheck.checked && StreamingPreferences.aeroWallpaper !== ""
+                    from: 0
+                    to: 80
+                    stepSize: 5
+                    value: StreamingPreferences.aeroWallpaperDim
+                    onMoved: StreamingPreferences.aeroWallpaperDim = Math.round(value)
+                }
+
                 CheckBox {
                     id: aeroBubblesCheck
                     width: parent.width

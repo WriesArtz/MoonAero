@@ -9,7 +9,11 @@ ItemDelegate {
     AeroPalette { id: aero }
 
     // Glass tile behind the PC / app artwork (Frutiger Aero)
+    scale: aero.enabled ? tileGlass.spring : 1.0
+
     AeroGlass {
+        id: tileGlass
+        springy: false
         z: -0.5
         visible: aero.enabled
         anchors.fill: parent

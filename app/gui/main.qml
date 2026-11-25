@@ -18,6 +18,9 @@ ApplicationWindow {
     // a retranslate() because AppView breaks for some reason.
     property bool clearOnBack: false
 
+    // Blurred copy of the Aero scene, published by AeroBackground and sampled by the glass panels
+    property Item aeroBackdrop: null
+
     id: window
     width: 1280
     height: 600

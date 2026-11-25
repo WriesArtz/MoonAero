@@ -10,7 +10,12 @@ ToolButton {
     AeroPalette { id: aero }
 
     // Glossy round "orb" behind the icon (Frutiger Aero)
+    // Springy, liquid scale: the glass and the icon move together
+    scale: aero.enabled ? toolGlass.spring : 1.0
+
     AeroGlass {
+        id: toolGlass
+        springy: false
         z: -0.5
         visible: aero.enabled
         anchors.fill: parent

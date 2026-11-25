@@ -19,6 +19,27 @@ QtObject {
     // 0.1 (very clear glass) .. 0.9 (almost opaque)
     readonly property real glass: Math.max(0.1, Math.min(0.9, StreamingPreferences.aeroGlass / 100.0))
 
+    // 0 (plain translucent glass) .. 1 (strongest backdrop blur)
+    readonly property real blur: Math.max(0.0, Math.min(1.0, StreamingPreferences.aeroBlur / 100.0))
+
+    // Wallpaper: user-chosen file (path or URL) shown instead of the sky. Empty = sky.
+    readonly property real wallpaperDim: Math.max(0.0, Math.min(0.8, StreamingPreferences.aeroWallpaperDim / 100.0))
+    readonly property url wallpaper: {
+        var p = StreamingPreferences.aeroWallpaper
+        if (!p) return ""
+        if (p.indexOf("://") > 0 || p.indexOf("qrc:") === 0) return p
+        // Plain path: "C:/x" or "C:\\x" on Windows, "/x" elsewhere
+        p = p.replace(/\\/g, "/")
+        return p.charAt(0) === "/" ? "file://" + p : "file:///" + p
+    }
+    // "image", "animated" (GIF / animated WebP) or "video"
+    readonly property string wallpaperKind: {
+        var ext = ("" + wallpaper).split("?")[0].split(".").pop().toLowerCase()
+        if (["mp4", "mov", "m4v", "webm", "mkv", "avi"].indexOf(ext) >= 0) return "video"
+        if (["gif", "webp", "apng"].indexOf(ext) >= 0) return "animated"
+        return "image"
+    }
+
     // Colour of the group box titles on the settings page
     readonly property string groupTitle: enabled ? "#ffffff" : "skyblue"
 

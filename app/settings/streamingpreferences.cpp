@@ -57,6 +57,9 @@
 #define SER_AERO_COLOR "aerocolor"
 #define SER_AERO_GLASS "aeroglass"
 #define SER_AERO_BUBBLES "aerobubbles"
+#define SER_AERO_BLUR "aeroblur"
+#define SER_AERO_WALLPAPER "aerowallpaper"
+#define SER_AERO_WALLPAPER_DIM "aerowallpaperdim"
 
 #define CURRENT_DEFAULT_VER 2
 
@@ -183,6 +186,9 @@ void StreamingPreferences::reload()
     aeroCustomColor = settings.value(SER_AERO_COLOR, "#1c9bdc").toString();
     aeroGlass = qBound(10, settings.value(SER_AERO_GLASS, 55).toInt(), 90);
     aeroBubbles = settings.value(SER_AERO_BUBBLES, true).toBool();
+    aeroBlur = qBound(0, settings.value(SER_AERO_BLUR, 60).toInt(), 100);
+    aeroWallpaper = settings.value(SER_AERO_WALLPAPER, "").toString();
+    aeroWallpaperDim = qBound(0, settings.value(SER_AERO_WALLPAPER_DIM, 25).toInt(), 80);
 
 
     // Perform default settings updates as required based on last default version
@@ -380,6 +386,9 @@ void StreamingPreferences::save()
     settings.setValue(SER_AERO_COLOR, aeroCustomColor);
     settings.setValue(SER_AERO_GLASS, aeroGlass);
     settings.setValue(SER_AERO_BUBBLES, aeroBubbles);
+    settings.setValue(SER_AERO_BLUR, aeroBlur);
+    settings.setValue(SER_AERO_WALLPAPER, aeroWallpaper);
+    settings.setValue(SER_AERO_WALLPAPER_DIM, aeroWallpaperDim);
 }
 
 int StreamingPreferences::getDefaultBitrate(int width, int height, int fps, bool yuv444)
