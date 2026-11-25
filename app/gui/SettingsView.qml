@@ -14,6 +14,8 @@ Flickable {
 
     signal languageChanged()
 
+    AeroPalette { id: aero }
+
     boundsBehavior: Flickable.OvershootBounds
 
     contentWidth: settingsColumn1.width > settingsColumn2.width ? settingsColumn1.width : settingsColumn2.width
@@ -99,11 +101,11 @@ Flickable {
         width: settingsPage.width / 2
         spacing: 15
 
-        GroupBox {
+        AeroGroupBox {
             id: basicSettingsGroupBox
             width: (parent.width - (parent.leftPadding + parent.rightPadding))
             padding: 12
-            title: "<font color=\"skyblue\">" + qsTr("Basic Settings") + "</font>"
+            title: "<font color=\"" + aero.groupTitle + "\">" + qsTr("Basic Settings") + "</font>"
             font.pointSize: 12
 
             Column {
@@ -874,12 +876,12 @@ Flickable {
             }
         }
 
-        GroupBox {
+        AeroGroupBox {
 
             id: audioSettingsGroupBox
             width: (parent.width - (parent.leftPadding + parent.rightPadding))
             padding: 12
-            title: "<font color=\"skyblue\">" + qsTr("Audio Settings") + "</font>"
+            title: "<font color=\"" + aero.groupTitle + "\">" + qsTr("Audio Settings") + "</font>"
             font.pointSize: 12
 
             Column {
@@ -968,11 +970,11 @@ Flickable {
             }
         }
 
-        GroupBox {
+        AeroGroupBox {
             id: hostSettingsGroupBox
             width: (parent.width - (parent.leftPadding + parent.rightPadding))
             padding: 12
-            title: "<font color=\"skyblue\">" + qsTr("Host Settings") + "</font>"
+            title: "<font color=\"" + aero.groupTitle + "\">" + qsTr("Host Settings") + "</font>"
             font.pointSize: 12
 
             Column {
@@ -1008,11 +1010,11 @@ Flickable {
             }
         }
 
-        GroupBox {
+        AeroGroupBox {
             id: uiSettingsGroupBox
             width: (parent.width - (parent.leftPadding + parent.rightPadding))
             padding: 12
-            title: "<font color=\"skyblue\">" + qsTr("UI Settings") + "</font>"
+            title: "<font color=\"" + aero.groupTitle + "\">" + qsTr("UI Settings") + "</font>"
             font.pointSize: 12
 
             Column {
@@ -1307,6 +1309,158 @@ Flickable {
                 }
             }
         }
+
+        AeroGroupBox {
+            id: appearanceSettingsGroupBox
+            width: (parent.width - (parent.leftPadding + parent.rightPadding))
+            padding: 12
+            title: "<font color=\"" + aero.groupTitle + "\">" + qsTr("Appearance") + "</font>"
+            font.pointSize: 12
+
+            Column {
+                anchors.fill: parent
+                spacing: 5
+
+                CheckBox {
+                    id: aeroEnabledCheck
+                    width: parent.width
+                    text: qsTr("Frutiger Aero theme")
+                    font.pointSize: 12
+                    checked: StreamingPreferences.aeroEnabled
+                    onCheckedChanged: {
+                        StreamingPreferences.aeroEnabled = checked
+                    }
+
+                    ToolTip.delay: 1000
+                    ToolTip.timeout: 5000
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Glossy glass, aqua gradients and floating bubbles. Turn this off for the classic Moonlight look.")
+                }
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Color preset")
+                    font.pointSize: 12
+                    wrapMode: Text.Wrap
+                    visible: aeroEnabledCheck.checked
+                }
+
+                AutoResizingComboBox {
+                    id: aeroPresetComboBox
+                    visible: aeroEnabledCheck.checked
+                    textRole: "text"
+                    model: ListModel {
+                        ListElement { text: qsTr("Aqua") }
+                        ListElement { text: qsTr("Bliss") }
+                        ListElement { text: qsTr("Sunset") }
+                        ListElement { text: qsTr("Aurora") }
+                        ListElement { text: qsTr("Custom") }
+                    }
+
+                    Component.onCompleted: {
+                        currentIndex = StreamingPreferences.aeroPreset
+                        activated(currentIndex)
+                    }
+
+                    // ::onActivated must be used, as it only listens for when the index is changed by a human
+                    onActivated: {
+                        StreamingPreferences.aeroPreset = currentIndex
+                    }
+                }
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Custom color")
+                    font.pointSize: 12
+                    wrapMode: Text.Wrap
+                    visible: aeroEnabledCheck.checked && StreamingPreferences.aeroPreset === 4
+                }
+
+                Flow {
+                    width: parent.width
+                    spacing: 8
+                    visible: aeroEnabledCheck.checked && StreamingPreferences.aeroPreset === 4
+
+                    Repeater {
+                        model: aero.swatches
+                        delegate: Rectangle {
+                            width: 34
+                            height: 34
+                            radius: 17
+                            color: modelData
+                            activeFocusOnTab: true
+                            border.width: (StreamingPreferences.aeroCustomColor === modelData || activeFocus) ? 3 : 1
+                            border.color: "#ffffff"
+
+                            function pick() {
+                                StreamingPreferences.aeroCustomColor = modelData
+                            }
+
+                            Keys.onReturnPressed: pick()
+                            Keys.onEnterPressed: pick()
+                            Keys.onSpacePressed: pick()
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: parent.pick()
+                            }
+                        }
+                    }
+                }
+
+                TextField {
+                    id: aeroColorField
+                    width: parent.width
+                    visible: aeroEnabledCheck.checked && StreamingPreferences.aeroPreset === 4
+                    placeholderText: qsTr("Hex color, for example #1c9bdc")
+                    maximumLength: 7
+                    text: StreamingPreferences.aeroCustomColor
+
+                    onEditingFinished: {
+                        if (/^#[0-9a-fA-F]{6}$/.test(text)) {
+                            StreamingPreferences.aeroCustomColor = text.toLowerCase()
+                        }
+                        else {
+                            text = StreamingPreferences.aeroCustomColor
+                        }
+                    }
+                }
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Glass opacity: %1%").arg(StreamingPreferences.aeroGlass)
+                    font.pointSize: 12
+                    wrapMode: Text.Wrap
+                    visible: aeroEnabledCheck.checked
+                }
+
+                Slider {
+                    id: aeroGlassSlider
+                    width: parent.width
+                    visible: aeroEnabledCheck.checked
+                    from: 10
+                    to: 90
+                    stepSize: 5
+                    value: StreamingPreferences.aeroGlass
+
+                    onMoved: {
+                        StreamingPreferences.aeroGlass = Math.round(value)
+                    }
+                }
+
+                CheckBox {
+                    id: aeroBubblesCheck
+                    width: parent.width
+                    visible: aeroEnabledCheck.checked
+                    text: qsTr("Floating bubbles")
+                    font.pointSize: 12
+                    checked: StreamingPreferences.aeroBubbles
+                    onCheckedChanged: {
+                        StreamingPreferences.aeroBubbles = checked
+                    }
+                }
+            }
+        }
     }
 
     Column {
@@ -1317,11 +1471,11 @@ Flickable {
         width: settingsPage.width / 2
         spacing: 15
 
-        GroupBox {
+        AeroGroupBox {
             id: inputSettingsGroupBox
             width: (parent.width - (parent.leftPadding + parent.rightPadding))
             padding: 12
-            title: "<font color=\"skyblue\">" + qsTr("Input Settings") + "</font>"
+            title: "<font color=\"" + aero.groupTitle + "\">" + qsTr("Input Settings") + "</font>"
             font.pointSize: 12
 
             Column {
@@ -1465,11 +1619,11 @@ Flickable {
             }
         }
 
-        GroupBox {
+        AeroGroupBox {
             id: gamepadSettingsGroupBox
             width: (parent.width - (parent.leftPadding + parent.rightPadding))
             padding: 12
-            title: "<font color=\"skyblue\">" + qsTr("Gamepad Settings") + "</font>"
+            title: "<font color=\"" + aero.groupTitle + "\">" + qsTr("Gamepad Settings") + "</font>"
             font.pointSize: 12
 
             Column {
@@ -1540,11 +1694,11 @@ Flickable {
             }
         }
 
-        GroupBox {
+        AeroGroupBox {
             id: advancedSettingsGroupBox
             width: (parent.width - (parent.leftPadding + parent.rightPadding))
             padding: 12
-            title: "<font color=\"skyblue\">" + qsTr("Advanced Settings") + "</font>"
+            title: "<font color=\"" + aero.groupTitle + "\">" + qsTr("Advanced Settings") + "</font>"
             font.pointSize: 12
 
             Column {

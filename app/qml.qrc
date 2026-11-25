@@ -19,5 +19,9 @@
         <file>gui/NavigableDialog.qml</file>
         <file>gui/CenteredGridView.qml</file>
         <file>gui/CliPair.qml</file>
+        <file>gui/AeroPalette.qml</file>
+        <file>gui/AeroGlass.qml</file>
+        <file>gui/AeroBackground.qml</file>
+        <file>gui/AeroGroupBox.qml</file>
     </qresource>
 </RCC>

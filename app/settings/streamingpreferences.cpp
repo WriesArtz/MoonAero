@@ -52,6 +52,11 @@
 #define SER_KEEPAWAKE "keepawake"
 #define SER_LANGUAGE "language"
 #define SER_RENDERER "renderer"
+#define SER_AERO_ENABLED "aeroenabled"
+#define SER_AERO_PRESET "aeropreset"
+#define SER_AERO_COLOR "aerocolor"
+#define SER_AERO_GLASS "aeroglass"
+#define SER_AERO_BUBBLES "aerobubbles"
 
 #define CURRENT_DEFAULT_VER 2
 
@@ -171,6 +176,13 @@ void StreamingPreferences::reload()
                                                                                                                  : UIDisplayMode::UI_MAXIMIZED)).toInt());
     language = static_cast<Language>(settings.value(SER_LANGUAGE,
                                                     static_cast<int>(Language::LANG_AUTO)).toInt());
+
+    // Frutiger Aero theme
+    aeroEnabled = settings.value(SER_AERO_ENABLED, true).toBool();
+    aeroPreset = qBound(0, settings.value(SER_AERO_PRESET, 0).toInt(), 4);
+    aeroCustomColor = settings.value(SER_AERO_COLOR, "#1c9bdc").toString();
+    aeroGlass = qBound(10, settings.value(SER_AERO_GLASS, 55).toInt(), 90);
+    aeroBubbles = settings.value(SER_AERO_BUBBLES, true).toBool();
 
 
     // Perform default settings updates as required based on last default version
@@ -362,6 +374,12 @@ void StreamingPreferences::save()
     settings.setValue(SER_SWAPFACEBUTTONS, swapFaceButtons);
     settings.setValue(SER_CAPTURESYSKEYS, captureSysKeysMode);
     settings.setValue(SER_KEEPAWAKE, keepAwake);
+
+    settings.setValue(SER_AERO_ENABLED, aeroEnabled);
+    settings.setValue(SER_AERO_PRESET, aeroPreset);
+    settings.setValue(SER_AERO_COLOR, aeroCustomColor);
+    settings.setValue(SER_AERO_GLASS, aeroGlass);
+    settings.setValue(SER_AERO_BUBBLES, aeroBubbles);
 }
 
 int StreamingPreferences::getDefaultBitrate(int width, int height, int fps, bool yuv444)

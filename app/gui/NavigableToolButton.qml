@@ -3,7 +3,30 @@ import QtQuick.Controls 2.2
 import QtQuick.Layouts 1.3
 
 ToolButton {
+    id: toolButton
+
     property string iconSource
+
+    AeroPalette { id: aero }
+
+    // Glossy round "orb" behind the icon (Frutiger Aero)
+    AeroGlass {
+        z: -0.5
+        visible: aero.enabled
+        anchors.fill: parent
+        anchors.margins: 4
+        orb: true
+        hovered: toolButton.hovered
+        pressed: toolButton.down
+        focused: toolButton.visualFocus
+    }
+
+    Component.onCompleted: {
+        // Hide the stock Material highlight / ripple while the Aero glass is shown
+        if (background) {
+            background.visible = Qt.binding(function() { return !aero.enabled })
+        }
+    }
 
     activeFocusOnTab: true
 

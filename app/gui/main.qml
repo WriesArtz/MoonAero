@@ -22,6 +22,23 @@ ApplicationWindow {
     width: 1280
     height: 600
 
+    AeroPalette { id: aero }
+
+    // Frutiger Aero: take the accent colour from the selected preset.
+    // (Material.Purple is Moonlight's stock accent.)
+    Material.accent: aero.enabled ? aero.scheme.accent : Material.Purple
+
+    // Sky, hills and bubbles behind everything. With the theme off this is
+    // the plain Material dark background, exactly as before.
+    background: Rectangle {
+        color: "#303030"
+
+        AeroBackground {
+            visible: aero.enabled
+            anchors.fill: parent
+        }
+    }
+
     // This function runs prior to creation of the initial StackView item
     function doEarlyInit() {
         // Override the background color to Material 2 colors for Qt 6.5+
@@ -246,6 +263,19 @@ ApplicationWindow {
         height: 60
         anchors.topMargin: 5
         anchors.bottomMargin: 5
+
+        // Glossy glass bar when the Aero theme is on; stock indigo otherwise
+        background: Rectangle {
+            color: aero.enabled ? "transparent" : "#3f51b5"
+
+            AeroGlass {
+                visible: aero.enabled
+                anchors.fill: parent
+                cornerRadius: 0
+                density: 0.8
+                tint: Qt.lighter(aero.scheme.top, 1.25)
+            }
+        }
 
         Label {
             id: titleLabel

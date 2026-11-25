@@ -158,6 +158,13 @@ public:
     Q_PROPERTY(CaptureSysKeysMode captureSysKeysMode MEMBER captureSysKeysMode NOTIFY captureSysKeysModeChanged)
     Q_PROPERTY(Language language MEMBER language NOTIFY languageChanged);
 
+    // Frutiger Aero theme (all five share a single change signal)
+    Q_PROPERTY(bool aeroEnabled MEMBER aeroEnabled NOTIFY aeroChanged)
+    Q_PROPERTY(int aeroPreset MEMBER aeroPreset NOTIFY aeroChanged)
+    Q_PROPERTY(QString aeroCustomColor MEMBER aeroCustomColor NOTIFY aeroChanged)
+    Q_PROPERTY(int aeroGlass MEMBER aeroGlass NOTIFY aeroChanged)
+    Q_PROPERTY(bool aeroBubbles MEMBER aeroBubbles NOTIFY aeroChanged)
+
     Q_INVOKABLE bool retranslate();
 
     // Directly accessible members for preferences
@@ -200,6 +207,11 @@ public:
     Language language;
     CaptureSysKeysMode captureSysKeysMode;
     RendererSelection rendererSelection;
+    bool aeroEnabled;
+    int aeroPreset;
+    QString aeroCustomColor;
+    int aeroGlass;
+    bool aeroBubbles;
 
 signals:
     void displayModeChanged();
@@ -238,6 +250,7 @@ signals:
     void keepAwakeChanged();
     void languageChanged();
     void rendererSelectionChanged();
+    void aeroChanged();
 
 private:
     explicit StreamingPreferences(QQmlEngine *qmlEngine);

@@ -1,0 +1,1457 @@
+diff --git a/app/src/main/java/com/limelight/AppView.java b/app/src/main/java/com/limelight/AppView.java
+index 1337627..b10a037 100644
+--- a/app/src/main/java/com/limelight/AppView.java
++++ b/app/src/main/java/com/limelight/AppView.java
+@@ -20,6 +20,7 @@ import com.limelight.utils.Dialog;
+ import com.limelight.utils.ServerHelper;
+ import com.limelight.utils.ShortcutHelper;
+ import com.limelight.utils.SpinnerDialog;
++import com.limelight.aero.AeroTheme;
+ import com.limelight.utils.UiHelper;
+ 
+ import android.app.Activity;
+@@ -376,6 +377,11 @@ public class AppView extends Activity implements AdapterFragmentCallbacks {
+         // Display a decoder crash notification if we've returned after a crash
+         UiHelper.showDecoderCrashDialog(this);
+ 
++        // Pick up Frutiger Aero changes made in Settings
++        if (AeroTheme.apply(this) && appGridAdapter != null) {
++            appGridAdapter.notifyDataSetChanged();
++        }
++
+         inForeground = true;
+         startComputerUpdates();
+     }
+diff --git a/app/src/main/java/com/limelight/PcView.java b/app/src/main/java/com/limelight/PcView.java
+index 4ec6094..b554535 100644
+--- a/app/src/main/java/com/limelight/PcView.java
++++ b/app/src/main/java/com/limelight/PcView.java
+@@ -26,6 +26,7 @@ import com.limelight.utils.Dialog;
+ import com.limelight.utils.HelpLauncher;
+ import com.limelight.utils.ServerHelper;
+ import com.limelight.utils.ShortcutHelper;
++import com.limelight.aero.AeroTheme;
+ import com.limelight.utils.UiHelper;
+ 
+ import android.app.Activity;
+@@ -306,6 +307,11 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
+         // Display a decoder crash notification if we've returned after a crash
+         UiHelper.showDecoderCrashDialog(this);
+ 
++        // Pick up Frutiger Aero changes made in Settings
++        if (AeroTheme.apply(this) && pcGridAdapter != null) {
++            pcGridAdapter.notifyDataSetChanged();
++        }
++
+         inForeground = true;
+         startComputerUpdates();
+     }
+diff --git a/app/src/main/java/com/limelight/aero/AeroBackgroundDrawable.java b/app/src/main/java/com/limelight/aero/AeroBackgroundDrawable.java
+new file mode 100644
+index 0000000..a9246de
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroBackgroundDrawable.java
+@@ -0,0 +1,147 @@
++package com.limelight.aero;
++
++import android.graphics.Canvas;
++import android.graphics.ColorFilter;
++import android.graphics.LinearGradient;
++import android.graphics.Paint;
++import android.graphics.PixelFormat;
++import android.graphics.RadialGradient;
++import android.graphics.Rect;
++import android.graphics.Shader;
++import android.graphics.drawable.Drawable;
++
++/**
++ * Frutiger Aero backdrop: sky gradient, soft sun glow, light rays and two
++ * rolling hills. Port of AeroBackground.qml (the floating bubbles are drawn by
++ * {@link AeroBubbleView} so they can animate without redrawing this).
++ */
++final class AeroBackgroundDrawable extends Drawable {
++    private static final float RAY_ROTATION_DEG = 24f;
++
++    private final AeroPalette palette;
++    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
++
++    private Shader skyShader;
++    private Shader sunShader;
++    private float sunX;
++    private float sunY;
++    private float sunRadius;
++
++    private final Shader[] rayShaders = new Shader[3];
++    private final float[][] rays = new float[3][];   // left, top, right, bottom
++
++    private Shader hill1Shader;
++    private Shader hill2Shader;
++    private float[] hill1;   // cx, cy, r
++    private float[] hill2;
++
++    AeroBackgroundDrawable(AeroPalette palette) {
++        this.palette = palette;
++    }
++
++    @Override
++    protected void onBoundsChange(Rect bounds) {
++        float w = bounds.width();
++        float h = bounds.height();
++        if (w <= 0 || h <= 0) {
++            return;
++        }
++        float l = bounds.left;
++        float t = bounds.top;
++
++        skyShader = new LinearGradient(0, t, 0, t + h,
++                new int[] {palette.top, palette.mid, palette.bottom},
++                new float[] {0f, 0.55f, 1f}, Shader.TileMode.CLAMP);
++
++        // Sun glow, top-left (six translucent discs in the QML version)
++        float base = Math.max(w, h) * 0.55f;
++        sunX = l + w * 0.18f;
++        sunY = t - h * 0.10f + base * 0.15f;
++        sunRadius = base / 2f;
++        sunShader = new RadialGradient(sunX, sunY, sunRadius,
++                new int[] {0x3dffffff, 0x0bffffff, 0x00ffffff},
++                new float[] {0f, 0.9f, 1f}, Shader.TileMode.CLAMP);
++
++        // Light rays
++        for (int i = 0; i < 3; i++) {
++            float rw = w * (0.10f + i * 0.05f);
++            float rh = h * 1.6f;
++            float rx = l + w * (0.05f + i * 0.17f);
++            float ry = t - h * 0.3f;
++            rays[i] = new float[] {rx, ry, rx + rw, ry + rh};
++            rayShaders[i] = new LinearGradient(0, ry, 0, ry + rh, 0x24ffffff, 0x00ffffff, Shader.TileMode.CLAMP);
++        }
++
++        // Hills: the top arcs of two huge, mostly off-screen circles
++        float r1 = w * 0.75f;
++        float top1 = t + h - h * 0.13f;
++        hill1 = new float[] {l - w * 0.35f + r1, top1 + r1, r1};
++        hill1Shader = new LinearGradient(0, top1, 0, top1 + 2f * r1,
++                new int[] {
++                        AeroColors.withAlpha(AeroColors.lighter(palette.bottom, 1.2f), 0.45f),
++                        AeroColors.withAlpha(palette.bottom, 0.30f),
++                        AeroColors.withAlpha(palette.bottom, 0f)},
++                new float[] {0f, 0.2f, 1f}, Shader.TileMode.CLAMP);
++
++        float r2 = w * 0.65f;
++        float top2 = t + h - h * 0.08f;
++        hill2 = new float[] {l + w * 0.30f + r2, top2 + r2, r2};
++        hill2Shader = new LinearGradient(0, top2, 0, top2 + 2f * r2,
++                new int[] {
++                        AeroColors.withAlpha(AeroColors.darker(palette.bottom, 1.15f), 0.50f),
++                        AeroColors.withAlpha(AeroColors.darker(palette.bottom, 1.3f), 0.30f),
++                        AeroColors.withAlpha(palette.bottom, 0f)},
++                new float[] {0f, 0.2f, 1f}, Shader.TileMode.CLAMP);
++    }
++
++    @Override
++    public void draw(Canvas canvas) {
++        Rect b = getBounds();
++        if (skyShader == null || b.isEmpty()) {
++            return;
++        }
++
++        int save = canvas.save();
++        canvas.clipRect(b);
++
++        paint.setStyle(Paint.Style.FILL);
++
++        paint.setShader(skyShader);
++        canvas.drawRect(b, paint);
++
++        paint.setShader(sunShader);
++        canvas.drawCircle(sunX, sunY, sunRadius, paint);
++
++        for (int i = 0; i < rays.length; i++) {
++            float[] r = rays[i];
++            int rs = canvas.save();
++            canvas.rotate(RAY_ROTATION_DEG, (r[0] + r[2]) / 2f, r[1]);
++            paint.setShader(rayShaders[i]);
++            canvas.drawRect(r[0], r[1], r[2], r[3], paint);
++            canvas.restoreToCount(rs);
++        }
++
++        paint.setShader(hill1Shader);
++        canvas.drawCircle(hill1[0], hill1[1], hill1[2], paint);
++        paint.setShader(hill2Shader);
++        canvas.drawCircle(hill2[0], hill2[1], hill2[2], paint);
++
++        paint.setShader(null);
++        canvas.restoreToCount(save);
++    }
++
++    @Override
++    public void setAlpha(int alpha) {
++        // Opaque backdrop: constant alpha is not supported.
++    }
++
++    @Override
++    public void setColorFilter(ColorFilter colorFilter) {
++        // Not supported
++    }
++
++    @Override
++    public int getOpacity() {
++        return PixelFormat.OPAQUE;
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroBubbleView.java b/app/src/main/java/com/limelight/aero/AeroBubbleView.java
+new file mode 100644
+index 0000000..8315f68
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroBubbleView.java
+@@ -0,0 +1,116 @@
++package com.limelight.aero;
++
++import android.content.Context;
++import android.graphics.Canvas;
++import android.graphics.Paint;
++import android.graphics.RectF;
++import android.os.SystemClock;
++import android.provider.Settings;
++import android.view.View;
++
++/**
++ * Slowly rising soap bubbles drawn over the Aero backdrop. Purely decorative:
++ * it never takes input or focus, only animates while the window is visible,
++ * and freezes if the user turned animations off in the system settings.
++ */
++final class AeroBubbleView extends View {
++    private static final int BUBBLE_COUNT = 14;
++
++    private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final Paint spark = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final RectF oval = new RectF();
++    private final float dp;
++    private boolean animate = true;
++
++    AeroBubbleView(Context context) {
++        super(context);
++        dp = context.getResources().getDisplayMetrics().density;
++
++        setWillNotDraw(false);
++        setClickable(false);
++        setFocusable(false);
++        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
++
++        fill.setStyle(Paint.Style.FILL);
++        fill.setColor(0x12ffffff);                 // white at 7%
++        rim.setStyle(Paint.Style.STROKE);
++        rim.setStrokeWidth(dp);
++        rim.setColor(0x8cffffff);                  // white at 55%
++        spark.setStyle(Paint.Style.FILL);
++        spark.setColor(0x8cffffff);
++    }
++
++    private boolean shouldRun() {
++        return animate && isShown() && getWindowVisibility() == VISIBLE;
++    }
++
++    private void refreshAnimationScale() {
++        try {
++            animate = Settings.Global.getFloat(getContext().getContentResolver(),
++                    Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f;
++        } catch (RuntimeException e) {
++            animate = true;
++        }
++    }
++
++    @Override
++    protected void onAttachedToWindow() {
++        super.onAttachedToWindow();
++        refreshAnimationScale();
++        postInvalidateOnAnimation();
++    }
++
++    @Override
++    protected void onWindowVisibilityChanged(int visibility) {
++        super.onWindowVisibilityChanged(visibility);
++        if (visibility == VISIBLE) {
++            refreshAnimationScale();
++            postInvalidateOnAnimation();
++        }
++    }
++
++    @Override
++    protected void onDraw(Canvas canvas) {
++        int w = getWidth();
++        int h = getHeight();
++        if (w <= 0 || h <= 0) {
++            return;
++        }
++
++        // A frozen clock keeps the bubbles in a pleasant static arrangement
++        long now = animate ? SystemClock.uptimeMillis() : 20000L;
++
++        for (int i = 0; i < BUBBLE_COUNT; i++) {
++            float size = (22 + (i * 37) % 70) * dp;
++            float startX = ((i * 211) % 100) / 100f * w;
++            long riseMs = 14000L + (i * 997L) % 12000L;
++            long delayMs = (i * 733L) % 6000L;
++            long swayMs = 3500L + (i * 313L) % 2500L;
++
++            // Rise from just below the bottom edge to just above the top
++            float progress = ((now + riseMs - delayMs) % riseMs) / (float) riseMs;
++            float y = h + size - progress * (h + 2f * size);
++
++            // Gentle left-right sway of +-28dp
++            double phase = (now % swayMs) / (double) swayMs * 2.0 * Math.PI;
++            float x = startX + (float) Math.sin(phase + i) * 28f * dp;
++
++            float cx = x + size / 2f;
++            float cy = y + size / 2f;
++            canvas.drawCircle(cx, cy, size / 2f, fill);
++            canvas.drawCircle(cx, cy, size / 2f - dp / 2f, rim);
++
++            // Specular highlight
++            int save = canvas.save();
++            canvas.rotate(-30f, x + size * 0.38f, y + size * 0.22f);
++            oval.set(x + size * 0.18f, y + size * 0.12f, x + size * 0.58f, y + size * 0.32f);
++            canvas.drawOval(oval, spark);
++            canvas.restoreToCount(save);
++        }
++
++        if (shouldRun()) {
++            postInvalidateOnAnimation();
++        }
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroColors.java b/app/src/main/java/com/limelight/aero/AeroColors.java
+new file mode 100644
+index 0000000..f7cf285
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroColors.java
+@@ -0,0 +1,188 @@
++package com.limelight.aero;
++
++/**
++ * Small colour toolbox for the Frutiger Aero theme.
++ *
++ * Deliberately free of android.* imports so the maths can be unit-tested on a plain JVM.
++ * Colours are packed ARGB ints, exactly like android.graphics.Color.
++ */
++final class AeroColors {
++    private AeroColors() {}
++
++    static int argb(int a, int r, int g, int b) {
++        return (clamp255(a) << 24) | (clamp255(r) << 16) | (clamp255(g) << 8) | clamp255(b);
++    }
++
++    static int alpha(int c) { return (c >>> 24) & 0xff; }
++    static int red(int c)   { return (c >>> 16) & 0xff; }
++    static int green(int c) { return (c >>> 8) & 0xff; }
++    static int blue(int c)  { return c & 0xff; }
++
++    private static int clamp255(int v) {
++        return v < 0 ? 0 : Math.min(v, 255);
++    }
++
++    private static float clamp01(float v) {
++        return v < 0f ? 0f : Math.min(v, 1f);
++    }
++
++    /** Returns the colour with its alpha replaced by {@code a} (0..1). */
++    static int withAlpha(int c, float a) {
++        return (Math.round(clamp01(a) * 255f) << 24) | (c & 0x00ffffff);
++    }
++
++    /** Returns the colour with its alpha multiplied by {@code f} (0..1). */
++    static int scaleAlpha(int c, float f) {
++        return withAlpha(c, (alpha(c) / 255f) * f);
++    }
++
++    static int blend(int from, int to, float t) {
++        t = clamp01(t);
++        return argb(Math.round(alpha(from) + (alpha(to) - alpha(from)) * t),
++                Math.round(red(from) + (red(to) - red(from)) * t),
++                Math.round(green(from) + (green(to) - green(from)) * t),
++                Math.round(blue(from) + (blue(to) - blue(from)) * t));
++    }
++
++    // ------------------------------------------------------------------ HSV
++
++    /** Fills {h (0..1), s, v} for the colour. */
++    private static void toHsv(int c, float[] out) {
++        float r = red(c) / 255f, g = green(c) / 255f, b = blue(c) / 255f;
++        float max = Math.max(r, Math.max(g, b));
++        float min = Math.min(r, Math.min(g, b));
++        float d = max - min;
++        float h;
++        if (d == 0f) {
++            h = 0f;
++        } else if (max == r) {
++            h = ((g - b) / d) % 6f;
++        } else if (max == g) {
++            h = (b - r) / d + 2f;
++        } else {
++            h = (r - g) / d + 4f;
++        }
++        h /= 6f;
++        if (h < 0f) h += 1f;
++        out[0] = h;
++        out[1] = max == 0f ? 0f : d / max;
++        out[2] = max;
++    }
++
++    private static int fromHsv(float h, float s, float v, int a) {
++        h = h - (float) Math.floor(h);
++        float c = v * s;
++        float x = c * (1f - Math.abs((h * 6f) % 2f - 1f));
++        float m = v - c;
++        float r, g, b;
++        int sector = (int) (h * 6f);
++        switch (sector) {
++            case 0:  r = c; g = x; b = 0; break;
++            case 1:  r = x; g = c; b = 0; break;
++            case 2:  r = 0; g = c; b = x; break;
++            case 3:  r = 0; g = x; b = c; break;
++            case 4:  r = x; g = 0; b = c; break;
++            default: r = c; g = 0; b = x; break;
++        }
++        return argb(a, Math.round((r + m) * 255f), Math.round((g + m) * 255f), Math.round((b + m) * 255f));
++    }
++
++    /**
++     * Same behaviour as Qt's Qt.lighter(): scales the HSV value, and lets any
++     * overflow wash out the saturation instead of clipping.
++     */
++    static int lighter(int c, float factor) {
++        float[] hsv = new float[3];
++        toHsv(c, hsv);
++        float v = hsv[2] * factor;
++        float s = hsv[1];
++        if (v > 1f) {
++            s = Math.max(0f, s - (v - 1f));
++            v = 1f;
++        }
++        return fromHsv(hsv[0], s, v, alpha(c));
++    }
++
++    /** Same behaviour as Qt's Qt.darker(): divides the HSV value. */
++    static int darker(int c, float factor) {
++        float[] hsv = new float[3];
++        toHsv(c, hsv);
++        return fromHsv(hsv[0], hsv[1], hsv[2] / factor, alpha(c));
++    }
++
++    // ------------------------------------------------------------------ HSL
++
++    /** Fills {h (0..1), s, l} for the colour. Hue is 0 for greys. */
++    static void toHsl(int c, float[] out) {
++        float r = red(c) / 255f, g = green(c) / 255f, b = blue(c) / 255f;
++        float max = Math.max(r, Math.max(g, b));
++        float min = Math.min(r, Math.min(g, b));
++        float d = max - min;
++        float l = (max + min) / 2f;
++        float h;
++        float s;
++        if (d == 0f) {
++            h = 0f;
++            s = 0f;
++        } else {
++            s = d / (1f - Math.abs(2f * l - 1f));
++            if (max == r) {
++                h = ((g - b) / d) % 6f;
++            } else if (max == g) {
++                h = (b - r) / d + 2f;
++            } else {
++                h = (r - g) / d + 4f;
++            }
++            h /= 6f;
++            if (h < 0f) h += 1f;
++        }
++        out[0] = h;
++        out[1] = s;
++        out[2] = l;
++    }
++
++    static int fromHsl(float h, float s, float l) {
++        h = h - (float) Math.floor(h);
++        s = clamp01(s);
++        l = clamp01(l);
++        float c = (1f - Math.abs(2f * l - 1f)) * s;
++        float x = c * (1f - Math.abs((h * 6f) % 2f - 1f));
++        float m = l - c / 2f;
++        float r, g, b;
++        int sector = (int) (h * 6f);
++        switch (sector) {
++            case 0:  r = c; g = x; b = 0; break;
++            case 1:  r = x; g = c; b = 0; break;
++            case 2:  r = 0; g = c; b = x; break;
++            case 3:  r = 0; g = x; b = c; break;
++            case 4:  r = x; g = 0; b = c; break;
++            default: r = c; g = 0; b = x; break;
++        }
++        return argb(255, Math.round((r + m) * 255f), Math.round((g + m) * 255f), Math.round((b + m) * 255f));
++    }
++
++    // ------------------------------------------------------------------ Parsing
++
++    /** True for strictly "#rrggbb". */
++    static boolean isHex(String s) {
++        if (s == null || s.length() != 7 || s.charAt(0) != '#') {
++            return false;
++        }
++        for (int i = 1; i < 7; i++) {
++            char ch = s.charAt(i);
++            boolean ok = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
++            if (!ok) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++    /** Parses "#rrggbb" into an opaque colour, or returns {@code fallback} when it is not valid. */
++    static int parseHex(String s, int fallback) {
++        if (!isHex(s)) {
++            return fallback;
++        }
++        return 0xff000000 | Integer.parseInt(s.substring(1), 16);
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroGlassDrawable.java b/app/src/main/java/com/limelight/aero/AeroGlassDrawable.java
+new file mode 100644
+index 0000000..c051553
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroGlassDrawable.java
+@@ -0,0 +1,185 @@
++package com.limelight.aero;
++
++import android.graphics.Canvas;
++import android.graphics.ColorFilter;
++import android.graphics.LinearGradient;
++import android.graphics.Paint;
++import android.graphics.PixelFormat;
++import android.graphics.Rect;
++import android.graphics.RectF;
++import android.graphics.Shader;
++import android.graphics.drawable.Drawable;
++
++/**
++ * A glossy Frutiger Aero glass surface: tinted translucent body, bright gloss
++ * highlight over the top half, warm glow along the bottom, a thin white rim and
++ * a soft shadow. Port of AeroGlass.qml from the desktop theme.
++ *
++ * Everything is drawn inside the drawable's bounds (shadow and focus ring live
++ * in the {@code inset} margin) so it survives parents that clip their children.
++ */
++final class AeroGlassDrawable extends Drawable {
++    private final int tint;
++    private final float density;     // 0..1, how opaque the glass is
++    private final float dp;          // pixels per dp
++    private final float radiusDp;    // corner radius; ignored for orbs
++    private final float insetDp;     // margin kept free around the body
++    private final boolean orb;
++    private final boolean shadow;
++    private final boolean hovered;
++    private final boolean pressed;
++    private final boolean focused;
++
++    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final RectF body = new RectF();
++    private final RectF glow = new RectF();
++    private final RectF gloss = new RectF();
++    private final RectF tmp = new RectF();
++
++    private Shader bodyShader;
++    private Shader glowShader;
++    private Shader glossShader;
++    private float radius;
++    private float innerRadius;
++
++    AeroGlassDrawable(int tint, float density, float dp, float radiusDp, float insetDp,
++                      boolean orb, boolean shadow, boolean hovered, boolean pressed, boolean focused) {
++        this.tint = tint;
++        this.density = density;
++        this.dp = dp;
++        this.radiusDp = radiusDp;
++        this.insetDp = insetDp;
++        this.orb = orb;
++        this.shadow = shadow;
++        this.hovered = hovered;
++        this.pressed = pressed;
++        this.focused = focused;
++    }
++
++    private float strength() {
++        return 0.25f + 0.55f * density;
++    }
++
++    @Override
++    protected void onBoundsChange(Rect bounds) {
++        float inset = insetDp * dp;
++        body.set(bounds.left + inset, bounds.top + inset, bounds.right - inset, bounds.bottom - inset);
++        if (body.width() <= 0 || body.height() <= 0) {
++            body.setEmpty();
++            return;
++        }
++
++        radius = orb ? Math.min(body.width(), body.height()) / 2f
++                     : Math.min(radiusDp * dp, Math.min(body.width(), body.height()) / 2f);
++        innerRadius = Math.max(0f, radius - 2f * dp);
++
++        float a = strength();
++        float hover = hovered ? 0.10f : 0f;
++        bodyShader = new LinearGradient(0, body.top, 0, body.bottom,
++                new int[] {
++                        AeroColors.withAlpha(AeroColors.lighter(tint, 1.15f), a + hover),
++                        AeroColors.withAlpha(tint, a + hover * 0.6f),
++                        AeroColors.withAlpha(AeroColors.darker(tint, 1.45f), Math.min(1f, a + 0.12f)),
++                },
++                new float[] {0f, 0.5f, 1f}, Shader.TileMode.CLAMP);
++
++        // Warm glow along the bottom edge (bottom 32%)
++        glow.set(body.left + 2f * dp, body.bottom - body.height() * 0.32f - 2f * dp,
++                body.right - 2f * dp, body.bottom - 2f * dp);
++        glowShader = new LinearGradient(0, glow.top, 0, glow.bottom,
++                AeroColors.withAlpha(AeroColors.lighter(tint, 1.4f), 0f),
++                AeroColors.withAlpha(AeroColors.lighter(tint, 1.4f), 0.28f),
++                Shader.TileMode.CLAMP);
++
++        // Gloss highlight over the top half
++        gloss.set(body.left + 2f * dp, body.top + 2f * dp,
++                body.right - 2f * dp, body.top + body.height() * 0.5f);
++        glossShader = new LinearGradient(0, gloss.top, 0, gloss.bottom,
++                0x8cffffff,   // white at 55%
++                0x0fffffff,   // white at 6%
++                Shader.TileMode.CLAMP);
++    }
++
++    @Override
++    public void draw(Canvas canvas) {
++        if (body.isEmpty() || bodyShader == null) {
++            return;
++        }
++
++        // Soft drop shadow: two stacked translucent shapes
++        if (shadow) {
++            paint.setShader(null);
++            paint.setStyle(Paint.Style.FILL);
++
++            paint.setColor(0x1f000000);
++            tmp.set(body);
++            tmp.inset(-1f * dp, -1f * dp);
++            tmp.offset(0f, 1.5f * dp);
++            canvas.drawRoundRect(tmp, radius + dp, radius + dp, paint);
++
++            paint.setColor(0x2e000000);
++            tmp.set(body);
++            tmp.offset(0f, 1f * dp);
++            canvas.drawRoundRect(tmp, radius, radius, paint);
++        }
++
++        // Tinted body
++        paint.setStyle(Paint.Style.FILL);
++        paint.setShader(bodyShader);
++        canvas.drawRoundRect(body, radius, radius, paint);
++
++        // Glow
++        paint.setShader(glowShader);
++        canvas.drawRoundRect(glow, innerRadius, innerRadius, paint);
++
++        // Gloss, slightly stronger on opaque glass
++        paint.setShader(glossShader);
++        paint.setAlpha(Math.round(255f * Math.min(1f, 0.55f + 0.45f * density)));
++        canvas.drawRoundRect(gloss, innerRadius, innerRadius, paint);
++        paint.setAlpha(255);
++        paint.setShader(null);
++
++        // Pressed state darkens the whole surface
++        if (pressed) {
++            paint.setColor(0x40000000);
++            canvas.drawRoundRect(body, radius, radius, paint);
++        }
++
++        // Rim
++        float rimWidth = (focused ? 2f : 1f) * dp;
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeWidth(rimWidth);
++        paint.setColor(focused ? 0xffffffff : 0x8cffffff);
++        tmp.set(body);
++        tmp.inset(rimWidth / 2f, rimWidth / 2f);
++        canvas.drawRoundRect(tmp, Math.max(0f, radius - rimWidth / 2f), Math.max(0f, radius - rimWidth / 2f), paint);
++
++        // Selection ring for keyboard / gamepad / TV-remote navigation
++        if (focused) {
++            float ringWidth = 3f * dp;
++            Rect b = getBounds();
++            paint.setStrokeWidth(ringWidth);
++            paint.setColor(AeroColors.withAlpha(AeroColors.lighter(tint, 1.5f), 0.85f));
++            tmp.set(b.left + ringWidth / 2f, b.top + ringWidth / 2f, b.right - ringWidth / 2f, b.bottom - ringWidth / 2f);
++            float ringRadius = radius + (body.left - tmp.left);
++            canvas.drawRoundRect(tmp, ringRadius, ringRadius, paint);
++        }
++
++        paint.setStyle(Paint.Style.FILL);
++    }
++
++    @Override
++    public void setAlpha(int alpha) {
++        // The glass is already translucent by design; a constant alpha is not supported.
++    }
++
++    @Override
++    public void setColorFilter(ColorFilter colorFilter) {
++        // Not supported
++    }
++
++    @Override
++    public int getOpacity() {
++        return PixelFormat.TRANSLUCENT;
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroPalette.java b/app/src/main/java/com/limelight/aero/AeroPalette.java
+new file mode 100644
+index 0000000..f5c460a
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroPalette.java
+@@ -0,0 +1,130 @@
++package com.limelight.aero;
++
++import android.content.Context;
++import android.content.SharedPreferences;
++import android.preference.PreferenceManager;
++
++/**
++ * Immutable snapshot of the Frutiger Aero settings, plus the four colours
++ * (sky top, sky middle, horizon, accent) derived from them.
++ *
++ * The preset names and colours mirror the desktop (Qt) version of the theme.
++ */
++public final class AeroPalette {
++    public static final String PREF_ENABLED = "checkbox_aero_enabled";
++    public static final String PREF_PRESET = "list_aero_preset";
++    public static final String PREF_COLOR = "edit_aero_color";
++    public static final String PREF_GLASS = "seekbar_aero_glass";
++    public static final String PREF_BUBBLES = "checkbox_aero_bubbles";
++
++    public static final String PRESET_CUSTOM = "custom";
++
++    public static final boolean DEFAULT_ENABLED = true;
++    public static final String DEFAULT_PRESET = "aqua";
++    public static final String DEFAULT_COLOR = "#1c9bdc";
++    public static final int DEFAULT_GLASS = 55;
++    public static final boolean DEFAULT_BUBBLES = true;
++
++    public static final int GLASS_MIN = 10;
++    public static final int GLASS_MAX = 90;
++
++    private static final int[][] PRESETS = {
++            // top, mid, bottom, accent
++            {0xff073b88, 0xff1c9bdc, 0xff4fd8c6, 0xff38c9f6}, // aqua
++            {0xff12559e, 0xff3fa9e6, 0xff46b85a, 0xff7edc54}, // bliss
++            {0xff1b2f7a, 0xffd6568f, 0xfff08a3c, 0xffffb04a}, // sunset
++            {0xff06173a, 0xff0c6a86, 0xff1fd0a0, 0xff4af0c8}, // aurora
++    };
++    private static final String[] PRESET_KEYS = {"aqua", "bliss", "sunset", "aurora"};
++
++    public final boolean enabled;
++    public final boolean bubbles;
++    /** Glass opacity, 0.1 (very clear) to 0.9 (nearly opaque). */
++    public final float glass;
++    public final int top;
++    public final int mid;
++    public final int bottom;
++    public final int accent;
++
++    private AeroPalette(boolean enabled, boolean bubbles, float glass, int[] scheme) {
++        this.enabled = enabled;
++        this.bubbles = enabled && bubbles;
++        this.glass = glass;
++        this.top = scheme[0];
++        this.mid = scheme[1];
++        this.bottom = scheme[2];
++        this.accent = scheme[3];
++    }
++
++    /** Pure factory (no Android dependencies); invalid input falls back to the defaults. */
++    public static AeroPalette fromValues(boolean enabled, String preset, String hex, int glassPercent, boolean bubbles) {
++        int clamped = Math.max(GLASS_MIN, Math.min(GLASS_MAX, glassPercent));
++        return new AeroPalette(enabled, bubbles, clamped / 100f, schemeFor(preset, hex));
++    }
++
++    public static AeroPalette read(Context context) {
++        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
++        return fromValues(
++                prefs.getBoolean(PREF_ENABLED, DEFAULT_ENABLED),
++                prefs.getString(PREF_PRESET, DEFAULT_PRESET),
++                prefs.getString(PREF_COLOR, DEFAULT_COLOR),
++                prefs.getInt(PREF_GLASS, DEFAULT_GLASS),
++                prefs.getBoolean(PREF_BUBBLES, DEFAULT_BUBBLES));
++    }
++
++    /** True for exactly "#rrggbb" (either case). */
++    public static boolean isValidColor(String value) {
++        return AeroColors.isHex(value);
++    }
++
++    /** True if the given SharedPreferences key belongs to the Aero theme. */
++    public static boolean isAeroPreference(String key) {
++        return PREF_ENABLED.equals(key) || PREF_PRESET.equals(key) || PREF_COLOR.equals(key)
++                || PREF_GLASS.equals(key) || PREF_BUBBLES.equals(key);
++    }
++
++    public static boolean isEnabled(Context context) {
++        return PreferenceManager.getDefaultSharedPreferences(context)
++                .getBoolean(PREF_ENABLED, DEFAULT_ENABLED);
++    }
++
++    private static int[] schemeFor(String preset, String hex) {
++        for (int i = 0; i < PRESET_KEYS.length; i++) {
++            if (PRESET_KEYS[i].equals(preset)) {
++                return PRESETS[i];
++            }
++        }
++        if (PRESET_CUSTOM.equals(preset)) {
++            return customScheme(AeroColors.parseHex(hex, PRESETS[0][1]));
++        }
++        return PRESETS[0];
++    }
++
++    /** Builds a whole scheme out of the single colour chosen for the Custom preset. */
++    static int[] customScheme(int base) {
++        float[] hsl = new float[3];
++        AeroColors.toHsl(base, hsl);
++        float h = hsl[0];
++        // Keep greys grey (graphite / silver look); otherwise make sure the scheme is colourful enough
++        float s = hsl[1] < 0.1f ? hsl[1] : Math.max(0.45f, hsl[1]);
++        return new int[] {
++                AeroColors.fromHsl(h, s, 0.20f),
++                AeroColors.fromHsl(h, s, 0.46f),
++                AeroColors.fromHsl((h + 0.12f) % 1f, s, 0.52f),
++                AeroColors.fromHsl(h, Math.min(1f, s + 0.1f), 0.62f),
++        };
++    }
++
++    /** Cheap identity used to skip re-styling views that already have this exact look. */
++    public int signature() {
++        int result = 17;
++        result = 31 * result + (enabled ? 1 : 0);
++        result = 31 * result + (bubbles ? 1 : 0);
++        result = 31 * result + Float.floatToIntBits(glass);
++        result = 31 * result + top;
++        result = 31 * result + mid;
++        result = 31 * result + bottom;
++        result = 31 * result + accent;
++        return result;
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroTheme.java b/app/src/main/java/com/limelight/aero/AeroTheme.java
+new file mode 100644
+index 0000000..42d733f
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroTheme.java
+@@ -0,0 +1,269 @@
++package com.limelight.aero;
++
++import android.app.Activity;
++import android.content.Context;
++import android.content.res.TypedArray;
++import android.graphics.Color;
++import android.graphics.drawable.ColorDrawable;
++import android.graphics.drawable.Drawable;
++import android.graphics.drawable.StateListDrawable;
++import android.util.TypedValue;
++import android.view.View;
++import android.view.ViewGroup;
++import android.view.Window;
++import android.widget.AbsListView;
++import android.widget.FrameLayout;
++import android.widget.ImageButton;
++
++import com.limelight.R;
++
++/**
++ * Entry points of the Frutiger Aero theme. Every call is idempotent and cheap,
++ * and when the theme is switched off the original look is restored.
++ *
++ * The theme only touches the menu screens (PC list, app list, settings, add-PC);
++ * the streaming activity never calls into this class.
++ */
++public final class AeroTheme {
++    private AeroTheme() {}
++
++    // Layout constants, in dp
++    private static final float PC_TILE_RADIUS = 18f;
++    private static final float APP_TILE_RADIUS = 12f;
++    private static final float TILE_INSET = 5f;       // room for the shadow and focus ring
++    private static final float ORB_INSET = 4f;
++    private static final float ORB_ICON_PADDING = 13f;
++    private static final float PANE_RADIUS = 16f;
++
++    private static final int[] ORB_BUTTON_IDS = {
++            R.id.settingsButton, R.id.helpButton, R.id.manuallyAddPc
++    };
++
++    // ------------------------------------------------------------------ Activity
++
++    /**
++     * Paints the sky backdrop, adds the floating bubbles and turns the toolbar
++     * buttons into glass orbs. Safe to call repeatedly (e.g. from onResume).
++     *
++     * @return true if the look changed since the last call (theme toggled or re-coloured),
++     *         so callers can refresh their grids
++     */
++    public static boolean apply(Activity activity) {
++        AeroPalette palette = AeroPalette.read(activity);
++        Window window = activity.getWindow();
++        View decor = window.getDecorView();
++        ViewGroup content = (ViewGroup) activity.findViewById(android.R.id.content);
++        float dp = activity.getResources().getDisplayMetrics().density;
++
++        Object previous = decor.getTag(R.id.aero_style_signature);
++
++        if (!palette.enabled) {
++            if (previous != null) {
++                // Theme was on: put everything back the way the stock app has it
++                Drawable original = decor.getTag(R.id.aero_original_background) instanceof Drawable
++                        ? (Drawable) decor.getTag(R.id.aero_original_background)
++                        : resolveWindowBackground(activity);
++                window.setBackgroundDrawable(original);
++                decor.setTag(R.id.aero_style_signature, null);
++                decor.setTag(R.id.aero_original_background, null);
++                setBubbles(activity, content, false);
++                for (int id : ORB_BUTTON_IDS) {
++                    unstyleOrb(activity.findViewById(id));
++                }
++            }
++            return previous != null;
++        }
++
++        int signature = palette.signature();
++        if (previous == null) {
++            // First time: remember the stock window background so it can be restored later
++            decor.setTag(R.id.aero_original_background, resolveWindowBackground(activity));
++        }
++        boolean changed = previous == null || (Integer) previous != signature;
++        if (changed) {
++            window.setBackgroundDrawable(new AeroBackgroundDrawable(palette));
++            decor.setTag(R.id.aero_style_signature, signature);
++        }
++
++        setBubbles(activity, content, palette.bubbles);
++
++        for (int id : ORB_BUTTON_IDS) {
++            View v = activity.findViewById(id);
++            if (v != null) {
++                styleOrb(v, palette, dp, signature);
++            }
++        }
++        return changed;
++    }
++
++    private static Drawable resolveWindowBackground(Context context) {
++        TypedValue tv = new TypedValue();
++        if (context.getTheme().resolveAttribute(android.R.attr.windowBackground, tv, true)) {
++            if (tv.resourceId != 0) {
++                return context.getDrawable(tv.resourceId);
++            }
++            if (tv.type >= TypedValue.TYPE_FIRST_COLOR_INT && tv.type <= TypedValue.TYPE_LAST_COLOR_INT) {
++                return new ColorDrawable(tv.data);
++            }
++        }
++        return new ColorDrawable(0xff303030);
++    }
++
++    private static void setBubbles(Activity activity, ViewGroup content, boolean wanted) {
++        if (content == null) {
++            return;
++        }
++        View existing = content.findViewById(R.id.aero_bubble_view);
++        if (wanted && existing == null) {
++            AeroBubbleView bubbles = new AeroBubbleView(activity);
++            bubbles.setId(R.id.aero_bubble_view);
++            // Behind the real UI, in front of the window background
++            content.addView(bubbles, 0, new FrameLayout.LayoutParams(
++                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
++        }
++        else if (!wanted && existing != null) {
++            content.removeView(existing);
++        }
++    }
++
++    // ------------------------------------------------------------------ Glass orbs (toolbar buttons)
++
++    private static void styleOrb(View button, AeroPalette palette, float dp, int signature) {
++        Object tagged = button.getTag(R.id.aero_style_signature);
++        if (tagged != null && (Integer) tagged == signature) {
++            return;
++        }
++        if (button.getTag(R.id.aero_original_background) == null) {
++            // Remember the stock look the first time we touch this button
++            button.setTag(R.id.aero_original_background, button.getBackground());
++            button.setTag(R.id.aero_original_padding, new int[] {
++                    button.getPaddingLeft(), button.getPaddingTop(),
++                    button.getPaddingRight(), button.getPaddingBottom()});
++        }
++        button.setBackground(selector(palette.accent, palette.glass, dp, 0f, ORB_INSET, true, true));
++        int pad = Math.round(ORB_ICON_PADDING * dp);
++        button.setPadding(pad, pad, pad, pad);
++        button.setTag(R.id.aero_style_signature, signature);
++    }
++
++    private static void unstyleOrb(View button) {
++        if (button == null || button.getTag(R.id.aero_style_signature) == null) {
++            return;
++        }
++        Object background = button.getTag(R.id.aero_original_background);
++        if (background instanceof Drawable) {
++            button.setBackground(((Drawable) background).getConstantState() != null
++                    ? ((Drawable) background).getConstantState().newDrawable()
++                    : (Drawable) background);
++        }
++        Object padding = button.getTag(R.id.aero_original_padding);
++        if (padding instanceof int[]) {
++            int[] p = (int[]) padding;
++            button.setPadding(p[0], p[1], p[2], p[3]);
++        }
++        button.setTag(R.id.aero_style_signature, null);
++        button.setTag(R.id.aero_original_background, null);
++        button.setTag(R.id.aero_original_padding, null);
++    }
++
++    // ------------------------------------------------------------------ Grid tiles
++
++    /**
++     * Gives a PC / app grid tile a glass background (or removes it when the
++     * theme is off). Called from {@code GenericGridAdapter.getView()}.
++     */
++    public static void styleTile(View tile, ViewGroup parent, boolean largeTile) {
++        Context context = tile.getContext();
++        AeroPalette palette = AeroPalette.read(context);
++        Object tagged = tile.getTag(R.id.aero_style_signature);
++
++        if (parent instanceof AbsListView) {
++            styleGridSelector((AbsListView) parent, palette.enabled);
++        }
++
++        if (!palette.enabled) {
++            if (tagged != null) {
++                tile.setBackground(null);
++                tile.setTag(R.id.aero_style_signature, null);
++            }
++            return;
++        }
++
++        int signature = palette.signature() * 31 + (largeTile ? 1 : 0);
++        if (tagged != null && (Integer) tagged == signature) {
++            return;
++        }
++        float dp = context.getResources().getDisplayMetrics().density;
++        tile.setBackground(selector(palette.accent, palette.glass, dp,
++                largeTile ? PC_TILE_RADIUS : APP_TILE_RADIUS, TILE_INSET, false, true));
++        tile.setTag(R.id.aero_style_signature, signature);
++    }
++
++    /** The stock list selector would paint a grey square under our glass, so hide it while themed. */
++    private static void styleGridSelector(AbsListView grid, boolean themed) {
++        Object original = grid.getTag(R.id.aero_original_selector);
++        if (themed) {
++            if (original == null) {
++                grid.setTag(R.id.aero_original_selector, grid.getSelector());
++                grid.setSelector(new ColorDrawable(Color.TRANSPARENT));
++            }
++        }
++        else if (original instanceof Drawable) {
++            grid.setSelector((Drawable) original);
++            grid.setTag(R.id.aero_original_selector, null);
++        }
++    }
++
++    // ------------------------------------------------------------------ Settings pane
++
++    /** Wraps the settings list in a pane of dark glass (or removes it when the theme is off). */
++    public static void stylePane(View pane) {
++        if (pane == null) {
++            return;
++        }
++        Context context = pane.getContext();
++        AeroPalette palette = AeroPalette.read(context);
++        Object tagged = pane.getTag(R.id.aero_style_signature);
++
++        if (!palette.enabled) {
++            if (tagged != null) {
++                Object original = pane.getTag(R.id.aero_original_background);
++                pane.setBackground(original instanceof Drawable ? (Drawable) original : null);
++                pane.setTag(R.id.aero_style_signature, null);
++                pane.setTag(R.id.aero_original_background, null);
++            }
++            return;
++        }
++
++        int signature = palette.signature();
++        if (tagged != null && (Integer) tagged == signature) {
++            return;
++        }
++        if (tagged == null) {
++            pane.setTag(R.id.aero_original_background, pane.getBackground());
++        }
++        float dp = context.getResources().getDisplayMetrics().density;
++        pane.setBackground(new AeroGlassDrawable(AeroColors.darker(palette.mid, 1.35f),
++                Math.max(0.6f, palette.glass), dp, PANE_RADIUS, 6f, false, false, false, false, false));
++        pane.setTag(R.id.aero_style_signature, signature);
++    }
++
++    // ------------------------------------------------------------------ Helpers
++
++    /** Builds the glass background with its pressed / selected / focused / hovered variants. */
++    private static StateListDrawable selector(int tint, float density, float dp, float radiusDp,
++                                              float insetDp, boolean orb, boolean shadow) {
++        StateListDrawable states = new StateListDrawable();
++        states.addState(new int[] {android.R.attr.state_pressed},
++                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, false, true, false));
++        states.addState(new int[] {android.R.attr.state_selected},
++                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, false, false, true));
++        states.addState(new int[] {android.R.attr.state_focused},
++                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, false, false, true));
++        states.addState(new int[] {android.R.attr.state_hovered},
++                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, true, false, false));
++        states.addState(new int[] {},
++                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, false, false, false));
++        return states;
++    }
++}
+diff --git a/app/src/main/java/com/limelight/grid/GenericGridAdapter.java b/app/src/main/java/com/limelight/grid/GenericGridAdapter.java
+index cec3de5..e534c04 100644
+--- a/app/src/main/java/com/limelight/grid/GenericGridAdapter.java
++++ b/app/src/main/java/com/limelight/grid/GenericGridAdapter.java
+@@ -10,6 +10,7 @@ import android.widget.ProgressBar;
+ import android.widget.TextView;
+ 
+ import com.limelight.R;
++import com.limelight.aero.AeroTheme;
+ 
+ import java.util.ArrayList;
+ 
+@@ -67,6 +68,8 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
+         TextView txtView = convertView.findViewById(R.id.grid_text);
+         ProgressBar prgView = convertView.findViewById(R.id.grid_spinner);
+ 
++        AeroTheme.styleTile(convertView, viewGroup, layoutId == R.layout.pc_grid_item);
++
+         populateView(convertView, imgView, prgView, txtView, overlayView, itemList.get(i));
+ 
+         return convertView;
+diff --git a/app/src/main/java/com/limelight/preferences/StreamSettings.java b/app/src/main/java/com/limelight/preferences/StreamSettings.java
+index 7070104..2ffe022 100644
+--- a/app/src/main/java/com/limelight/preferences/StreamSettings.java
++++ b/app/src/main/java/com/limelight/preferences/StreamSettings.java
+@@ -12,6 +12,7 @@ import android.app.Activity;
+ import android.os.Handler;
+ import android.os.Vibrator;
+ import android.preference.CheckBoxPreference;
++import android.preference.EditTextPreference;
+ import android.preference.ListPreference;
+ import android.preference.Preference;
+ import android.preference.PreferenceCategory;
+@@ -26,16 +27,20 @@ import android.view.LayoutInflater;
+ import android.view.View;
+ import android.view.ViewGroup;
+ import android.view.WindowInsets;
++import android.widget.Toast;
+ 
+ import com.limelight.LimeLog;
+ import com.limelight.PcView;
+ import com.limelight.R;
++import com.limelight.aero.AeroPalette;
++import com.limelight.aero.AeroTheme;
+ import com.limelight.binding.video.MediaCodecHelper;
+ import com.limelight.utils.Dialog;
+ import com.limelight.utils.UiHelper;
+ 
+ import java.lang.reflect.Method;
+ import java.util.Arrays;
++import java.util.Locale;
+ 
+ public class StreamSettings extends Activity {
+     private PreferenceConfiguration previousPrefs;
+@@ -267,9 +272,82 @@ public class StreamSettings extends Activity {
+         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+             View view = super.onCreateView(inflater, container, savedInstanceState);
+             UiHelper.applyStatusBarPadding(view);
++            AeroTheme.stylePane(view);
+             return view;
+         }
+ 
++        // Applies Frutiger Aero changes the moment they are made, without leaving Settings
++        private final SharedPreferences.OnSharedPreferenceChangeListener aeroListener =
++                new SharedPreferences.OnSharedPreferenceChangeListener() {
++                    @Override
++                    public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
++                        Activity activity = getActivity();
++                        if (activity != null && AeroPalette.isAeroPreference(key)) {
++                            AeroTheme.apply(activity);
++                            AeroTheme.stylePane(getView());
++                        }
++                    }
++                };
++
++        @Override
++        public void onResume() {
++            super.onResume();
++            PreferenceManager.getDefaultSharedPreferences(getActivity())
++                    .registerOnSharedPreferenceChangeListener(aeroListener);
++        }
++
++        @Override
++        public void onPause() {
++            super.onPause();
++            PreferenceManager.getDefaultSharedPreferences(getActivity())
++                    .unregisterOnSharedPreferenceChangeListener(aeroListener);
++        }
++
++        private void setupAeroPreferences() {
++            final ListPreference preset = (ListPreference) findPreference(AeroPalette.PREF_PRESET);
++            final ListPreference swatch = (ListPreference) findPreference("list_aero_swatch");
++            final EditTextPreference hex = (EditTextPreference) findPreference(AeroPalette.PREF_COLOR);
++            if (preset == null || swatch == null || hex == null) {
++                return;
++            }
++
++            hex.setSummary(hex.getText());
++
++            // Picking a ready-made color fills in the hex field and switches to the Custom preset
++            swatch.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
++                @Override
++                public boolean onPreferenceChange(Preference preference, Object newValue) {
++                    String value = String.valueOf(newValue);
++                    preset.setValue(AeroPalette.PRESET_CUSTOM);
++                    hex.setText(value);
++                    hex.setSummary(value);
++                    // The swatch list itself is not persisted
++                    return false;
++                }
++            });
++
++            // Typing a hex color is validated and normalized before it is saved
++            hex.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
++                @Override
++                public boolean onPreferenceChange(Preference preference, Object newValue) {
++                    String value = String.valueOf(newValue).trim();
++                    if (!value.startsWith("#")) {
++                        value = "#" + value;
++                    }
++                    if (!AeroPalette.isValidColor(value)) {
++                        Toast.makeText(getActivity(), R.string.toast_aero_color_invalid, Toast.LENGTH_LONG).show();
++                        return false;
++                    }
++                    value = value.toLowerCase(Locale.ROOT);
++                    preset.setValue(AeroPalette.PRESET_CUSTOM);
++                    hex.setText(value);
++                    hex.setSummary(value);
++                    // We stored the normalized value ourselves
++                    return false;
++                }
++            });
++        }
++
+         @Override
+         public void onCreate(Bundle savedInstanceState) {
+             super.onCreate(savedInstanceState);
+@@ -277,6 +355,8 @@ public class StreamSettings extends Activity {
+             addPreferencesFromResource(R.xml.preferences);
+             PreferenceScreen screen = getPreferenceScreen();
+ 
++            setupAeroPreferences();
++
+             // hide on-screen controls category on non touch screen devices
+             if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) {
+                 PreferenceCategory category =
+diff --git a/app/src/main/java/com/limelight/utils/UiHelper.java b/app/src/main/java/com/limelight/utils/UiHelper.java
+index 2fb1ecb..ecdf398 100644
+--- a/app/src/main/java/com/limelight/utils/UiHelper.java
++++ b/app/src/main/java/com/limelight/utils/UiHelper.java
+@@ -18,6 +18,7 @@ import android.view.WindowInsets;
+ import android.view.WindowManager;
+ 
+ import com.limelight.Game;
++import com.limelight.aero.AeroTheme;
+ import com.limelight.R;
+ import com.limelight.nvstream.http.ComputerDetails;
+ import com.limelight.preferences.PreferenceConfiguration;
+@@ -170,6 +171,9 @@ public class UiHelper {
+ 
+             activity.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+         }
++
++        // Frutiger Aero theme (no-op when disabled in Settings)
++        AeroTheme.apply(activity);
+     }
+ 
+     public static void showDecoderCrashDialog(Activity activity) {
+diff --git a/app/src/main/res/values/aero_ids.xml b/app/src/main/res/values/aero_ids.xml
+new file mode 100644
+index 0000000..b197951
+--- /dev/null
++++ b/app/src/main/res/values/aero_ids.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <!-- Frutiger Aero theme: view ids and tag keys (see com.limelight.aero.AeroTheme) -->
++    <item name="aero_bubble_view" type="id" />
++    <item name="aero_style_signature" type="id" />
++    <item name="aero_original_padding" type="id" />
++    <item name="aero_original_background" type="id" />
++    <item name="aero_original_selector" type="id" />
++</resources>
+diff --git a/app/src/main/res/values/arrays.xml b/app/src/main/res/values/arrays.xml
+index 00a68f4..805da16 100644
+--- a/app/src/main/res/values/arrays.xml
++++ b/app/src/main/res/values/arrays.xml
+@@ -1,5 +1,49 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <resources>
++    <!-- Frutiger Aero theme -->
++    <string-array name="aero_preset_names">
++        <item>@string/aero_preset_aqua</item>
++        <item>@string/aero_preset_bliss</item>
++        <item>@string/aero_preset_sunset</item>
++        <item>@string/aero_preset_aurora</item>
++        <item>@string/aero_preset_custom</item>
++    </string-array>
++
++    <!-- Keep this in sync with AeroPalette -->
++    <string-array name="aero_preset_values" translatable="false">
++        <item>aqua</item>
++        <item>bliss</item>
++        <item>sunset</item>
++        <item>aurora</item>
++        <item>custom</item>
++    </string-array>
++
++    <string-array name="aero_swatch_names">
++        <item>@string/aero_swatch_ocean</item>
++        <item>@string/aero_swatch_teal</item>
++        <item>@string/aero_swatch_emerald</item>
++        <item>@string/aero_swatch_lime</item>
++        <item>@string/aero_swatch_amber</item>
++        <item>@string/aero_swatch_orange</item>
++        <item>@string/aero_swatch_pink</item>
++        <item>@string/aero_swatch_violet</item>
++        <item>@string/aero_swatch_indigo</item>
++        <item>@string/aero_swatch_slate</item>
++    </string-array>
++
++    <string-array name="aero_swatch_values" translatable="false">
++        <item>#1c9bdc</item>
++        <item>#00b7c3</item>
++        <item>#2ecc71</item>
++        <item>#9ccc1a</item>
++        <item>#ffb300</item>
++        <item>#ff6f3c</item>
++        <item>#ec407a</item>
++        <item>#9c5cf0</item>
++        <item>#4f6df5</item>
++        <item>#8d99ae</item>
++    </string-array>
++
+     <string-array name="resolution_names">
+         <item>@string/resolution_360p</item>
+         <item>@string/resolution_480p</item>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index b20e8be..b0c1951 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -303,4 +303,35 @@
+     <string name="analogscroll_none">None (both sticks move the mouse)</string>
+     <string name="analogscroll_right">Right analog stick</string>
+     <string name="analogscroll_left">Left analog stick</string>
++
++    <!-- Frutiger Aero theme -->
++    <string name="category_aero_settings">Appearance (Frutiger Aero)</string>
++    <string name="title_checkbox_aero_enabled">Frutiger Aero theme</string>
++    <string name="summary_checkbox_aero_enabled">Glossy glass, aqua gradients and floating bubbles. Turn off for the classic Moonlight look</string>
++    <string name="title_aero_preset">Color preset</string>
++    <string name="aero_preset_aqua">Aqua</string>
++    <string name="aero_preset_bliss">Bliss</string>
++    <string name="aero_preset_sunset">Sunset</string>
++    <string name="aero_preset_aurora">Aurora</string>
++    <string name="aero_preset_custom">Custom</string>
++    <string name="title_aero_swatch">Pick a custom color</string>
++    <string name="summary_aero_swatch">Choose a ready-made color. This switches the preset to Custom</string>
++    <string name="aero_swatch_ocean">Ocean blue</string>
++    <string name="aero_swatch_teal">Teal</string>
++    <string name="aero_swatch_emerald">Emerald</string>
++    <string name="aero_swatch_lime">Lime</string>
++    <string name="aero_swatch_amber">Amber</string>
++    <string name="aero_swatch_orange">Orange</string>
++    <string name="aero_swatch_pink">Pink</string>
++    <string name="aero_swatch_violet">Violet</string>
++    <string name="aero_swatch_indigo">Indigo</string>
++    <string name="aero_swatch_slate">Slate</string>
++    <string name="title_aero_color">Custom color (hex)</string>
++    <string name="dialog_title_aero_color">Custom color</string>
++    <string name="toast_aero_color_invalid">Enter a color like #1c9bdc: a # followed by six hex digits</string>
++    <string name="title_aero_glass">Glass opacity</string>
++    <string name="summary_aero_glass">How solid the glass panels look. Lower values are clearer</string>
++    <string name="suffix_aero_glass">%</string>
++    <string name="title_checkbox_aero_bubbles">Floating bubbles</string>
++    <string name="summary_checkbox_aero_bubbles">Animate soap bubbles in the background. They stay still if animations are off in system settings</string>
+ </resources>
+diff --git a/app/src/main/res/xml/preferences.xml b/app/src/main/res/xml/preferences.xml
+index 5b09082..718ecd8 100644
+--- a/app/src/main/res/xml/preferences.xml
++++ b/app/src/main/res/xml/preferences.xml
+@@ -224,6 +224,56 @@
+             android:title="@string/title_checkbox_small_icon_mode"
+             android:summary="@string/summary_checkbox_small_icon_mode" />
+     </PreferenceCategory>
++    <PreferenceCategory android:title="@string/category_aero_settings"
++        android:key="category_aero_settings">
++        <CheckBoxPreference
++            android:key="checkbox_aero_enabled"
++            android:title="@string/title_checkbox_aero_enabled"
++            android:summary="@string/summary_checkbox_aero_enabled"
++            android:defaultValue="true" />
++        <ListPreference
++            android:key="list_aero_preset"
++            android:dependency="checkbox_aero_enabled"
++            android:title="@string/title_aero_preset"
++            android:summary="%s"
++            android:entries="@array/aero_preset_names"
++            android:entryValues="@array/aero_preset_values"
++            android:defaultValue="aqua" />
++        <ListPreference
++            android:key="list_aero_swatch"
++            android:dependency="checkbox_aero_enabled"
++            android:persistent="false"
++            android:title="@string/title_aero_swatch"
++            android:summary="@string/summary_aero_swatch"
++            android:entries="@array/aero_swatch_names"
++            android:entryValues="@array/aero_swatch_values" />
++        <EditTextPreference
++            android:key="edit_aero_color"
++            android:dependency="checkbox_aero_enabled"
++            android:title="@string/title_aero_color"
++            android:dialogTitle="@string/dialog_title_aero_color"
++            android:singleLine="true"
++            android:maxLength="7"
++            android:defaultValue="#1c9bdc" />
++        <com.limelight.preferences.SeekBarPreference
++            android:key="seekbar_aero_glass"
++            android:dependency="checkbox_aero_enabled"
++            android:dialogMessage="@string/summary_aero_glass"
++            seekbar:min="10"
++            seekbar:step="5"
++            seekbar:keyStep="5"
++            android:max="90"
++            android:defaultValue="55"
++            android:summary="@string/summary_aero_glass"
++            android:text="@string/suffix_aero_glass"
++            android:title="@string/title_aero_glass" />
++        <CheckBoxPreference
++            android:key="checkbox_aero_bubbles"
++            android:dependency="checkbox_aero_enabled"
++            android:title="@string/title_checkbox_aero_bubbles"
++            android:summary="@string/summary_checkbox_aero_bubbles"
++            android:defaultValue="true" />
++    </PreferenceCategory>
+     <PreferenceCategory android:title="@string/category_advanced_settings"
+         android:key="category_advanced_settings">
+         <CheckBoxPreference
