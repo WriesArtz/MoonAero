@@ -1,3 +1,63 @@
+diff --git a/FRUTIGER_AERO.md b/FRUTIGER_AERO.md
+new file mode 100644
+index 0000000..84d4f31
+--- /dev/null
++++ b/FRUTIGER_AERO.md
+@@ -0,0 +1,54 @@
++# MoonAeroAndroid: tema Frutiger Aero para Moonlight Android
++
++Cristal brillante, degradados aqua, sol, colinas y burbujas en las pantallas de menú (lista de PCs,
++lista de apps, ajustes, añadir PC). El streaming no se toca.
++
++## Personalizar
++Ajustes → **Appearance (Frutiger Aero)**; los cambios se aplican al instante:
++tema on/off (apagado = aspecto original), preset (Aqua, Bliss, Sunset, Aurora, Custom),
++color propio (paleta de 10 o hex `#rrggbb`), opacidad del cristal (10-90 %) y burbujas.
++
++## Compilar
++Herramientas: **Android Studio** (JDK 17 incluido), Android **SDK 37**, **NDK 29.0.14206865**
++(SDK Manager → SDK Tools → NDK Side by side).
++
++```bash
++git clone --recursive https://github.com/WriesArtz/MoonAeroAndroid.git
++cd MoonAeroAndroid
++git checkout frutiger-aero
++```
++Crea `local.properties` en la raíz:
++```properties
++sdk.dir=/Users/TU_USUARIO/Library/Android/sdk
++ndk.dir=/Users/TU_USUARIO/Library/Android/sdk/ndk/29.0.14206865
++```
++```bash
++./gradlew assembleNonRootDebug
++adb install -r app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk
++```
++(o abre el proyecto en Android Studio → Build → Build APK). Un APK release necesita tu propia firma.
++
++## Estado
++Recursos compilados con `aapt`, paquete `com.limelight.aero` compilado sin avisos y sin errores nuevos
++en los archivos modificados. No se ha ejecutado en un dispositivo: pendiente de prueba visual (táctil y mando/TV).
++Los diálogos del sistema conservan el estilo Material estándar.
++
++## Liquid glass and wallpaper (v2)
++
++**Liquid glass.** Tiles, toolbar orbs and the settings pane now show a *blurred copy of the background*
++through a generously rounded, softly tinted pane, with a specular rim (bright top-left / bottom-right,
++faint along the sides), a soft sheen with no hard gloss band, an inner glow, diffuse shadow and a glow
++for hover / selection. The glass is springy: it grows slightly when hovered or selected (TV remote,
++keyboard, mouse) and squashes when pressed, then settles with a small overshoot. Settings → Appearance →
++**Glass blur** (0–100 %) controls the frost; 0 gives plain translucent glass. The blur is a tiny
++(~190 px) pre-blurred render of the background, so it works on every Android version (no RenderEffect /
++RenderScript) and costs almost nothing per tile.
++
++**Wallpaper.** Settings → Appearance → *Wallpaper (image, GIF or video)* opens the system file picker
++(any image or video). It replaces the sky, is cropped to fill the screen and can be dimmed (0–80 %).
++GIF / animated WebP animate on Android 9+ (older versions show the first frame); videos loop silently.
++It pauses whenever the window loses focus (so it is idle while streaming) and falls back to the sky if
++the file cannot be read. The glass blur uses the wallpaper's first frame. *Remove wallpaper* goes back to
++the sky. Access to the chosen file is kept with a persistable URI permission.
++
++New preference keys: `seekbar_aero_blur`, `edit_aero_wallpaper`, `seekbar_aero_wallpaper_dim`.
 diff --git a/app/src/main/java/com/limelight/AppView.java b/app/src/main/java/com/limelight/AppView.java
 index 1337627..b10a037 100644
 --- a/app/src/main/java/com/limelight/AppView.java
@@ -46,6 +106,197 @@ index 4ec6094..b554535 100644
          inForeground = true;
          startComputerUpdates();
      }
+diff --git a/app/src/main/java/com/limelight/aero/AeroApi28.java b/app/src/main/java/com/limelight/aero/AeroApi28.java
+new file mode 100644
+index 0000000..622ae38
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroApi28.java
+@@ -0,0 +1,45 @@
++package com.limelight.aero;
++
++import android.annotation.TargetApi;
++import android.content.ContentResolver;
++import android.graphics.ImageDecoder;
++import android.graphics.drawable.AnimatedImageDrawable;
++import android.graphics.drawable.Drawable;
++import android.net.Uri;
++
++import java.io.IOException;
++
++/** Animated GIF / WebP support. Only touched on Android 9 (API 28) and newer. */
++@TargetApi(28)
++final class AeroApi28 {
++    private AeroApi28() {}
++
++    static Drawable decode(ContentResolver resolver, Uri uri, final int maxSide) throws IOException {
++        ImageDecoder.Source source = ImageDecoder.createSource(resolver, uri);
++        return ImageDecoder.decodeDrawable(source, new ImageDecoder.OnHeaderDecodedListener() {
++            @Override
++            public void onHeaderDecoded(ImageDecoder decoder, ImageDecoder.ImageInfo info, ImageDecoder.Source src) {
++                int big = Math.max(info.getSize().getWidth(), info.getSize().getHeight());
++                if (big > maxSide) {
++                    decoder.setTargetSampleSize((big + maxSide - 1) / maxSide);
++                }
++            }
++        });
++    }
++
++    /** Starts or pauses the animation if the drawable is animated; returns whether it was. */
++    static boolean setPlaying(Drawable drawable, boolean play) {
++        if (!(drawable instanceof AnimatedImageDrawable)) {
++            return false;
++        }
++        AnimatedImageDrawable animated = (AnimatedImageDrawable) drawable;
++        animated.setRepeatCount(AnimatedImageDrawable.REPEAT_INFINITE);
++        if (play) {
++            animated.start();
++        }
++        else {
++            animated.stop();
++        }
++        return true;
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroBackdrop.java b/app/src/main/java/com/limelight/aero/AeroBackdrop.java
+new file mode 100644
+index 0000000..29f4a85
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroBackdrop.java
+@@ -0,0 +1,134 @@
++package com.limelight.aero;
++
++import android.content.Context;
++import android.graphics.Bitmap;
++import android.graphics.Canvas;
++import android.graphics.Color;
++import android.graphics.Paint;
++import android.graphics.Rect;
++import android.net.Uri;
++import android.os.Handler;
++import android.os.Looper;
++import android.util.DisplayMetrics;
++
++/**
++ * The blurred picture of the background that glass panels show through them.
++ *
++ * It is a tiny (~190 px) screen-sized render of sky + wallpaper (first frame for GIFs and
++ * videos) + dimming, blurred once. Each glass drawable then draws the part of it that lies
++ * behind itself, which is what makes it look like frosted glass without per-view blur work.
++ */
++final class AeroBackdrop {
++    private AeroBackdrop() {}
++
++    private static final int LONG_SIDE = 192;
++    private static final Handler MAIN = new Handler(Looper.getMainLooper());
++
++    private static volatile Bitmap bitmap;
++    private static volatile int windowWidth = 1;
++    private static volatile int windowHeight = 1;
++    private static String key = "";
++    private static int generation = 0;
++
++    static Bitmap bitmap() {
++        return bitmap;
++    }
++
++    static int windowWidth() {
++        return windowWidth;
++    }
++
++    static int windowHeight() {
++        return windowHeight;
++    }
++
++    /**
++     * Makes sure the backdrop matches the palette and screen size. The sky version is ready
++     * immediately; the wallpaper version replaces it later, and {@code onChanged} then runs
++     * on the main thread so views can redraw.
++     */
++    static void ensure(final Context context, final AeroPalette palette, final Runnable onChanged) {
++        DisplayMetrics dm = context.getResources().getDisplayMetrics();
++        final int w = Math.max(1, dm.widthPixels);
++        final int h = Math.max(1, dm.heightPixels);
++        String newKey = palette.top + ":" + palette.mid + ":" + palette.bottom + ":" + palette.blur
++                + ":" + palette.wallpaper + ":" + palette.wallpaperDim + ":" + w + "x" + h;
++        if (newKey.equals(key)) {
++            return;
++        }
++        key = newKey;
++        final int mine = ++generation;
++        windowWidth = w;
++        windowHeight = h;
++
++        bitmap = render(palette, null, w, h);
++
++        if (palette.wallpaper.length() > 0) {
++            final Context app = context.getApplicationContext();
++            final Uri uri = Uri.parse(palette.wallpaper);
++            new Thread(new Runnable() {
++                @Override
++                public void run() {
++                    final Bitmap still = AeroWallpaper.loadStill(app, uri, LONG_SIDE * 2);
++                    if (still == null) {
++                        return;
++                    }
++                    final Bitmap blurred = render(palette, still, w, h);
++                    MAIN.post(new Runnable() {
++                        @Override
++                        public void run() {
++                            if (mine == generation) {
++                                bitmap = blurred;
++                                if (onChanged != null) {
++                                    onChanged.run();
++                                }
++                            }
++                        }
++                    });
++                }
++            }, "aero-backdrop").start();
++        }
++    }
++
++    private static Bitmap render(AeroPalette palette, Bitmap wallpaper, int w, int h) {
++        float scale = (float) LONG_SIDE / Math.max(w, h);
++        int sw = Math.max(8, Math.round(w * scale));
++        int sh = Math.max(8, Math.round(h * scale));
++        Bitmap out = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
++        Canvas canvas = new Canvas(out);
++
++        AeroBackgroundDrawable sky = new AeroBackgroundDrawable(palette);
++        sky.setBounds(0, 0, sw, sh);
++        sky.draw(canvas);
++
++        if (wallpaper != null) {
++            // Centre-crop the wallpaper to the screen's aspect ratio
++            float ww = wallpaper.getWidth();
++            float wh = wallpaper.getHeight();
++            float want = (float) sw / sh;
++            Rect src;
++            if (ww / wh > want) {
++                int cw = Math.round(wh * want);
++                src = new Rect(Math.round((ww - cw) / 2f), 0, Math.round((ww - cw) / 2f) + cw, (int) wh);
++            }
++            else {
++                int ch = Math.round(ww / want);
++                src = new Rect(0, Math.round((wh - ch) / 2f), (int) ww, Math.round((wh - ch) / 2f) + ch);
++            }
++            Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
++            canvas.drawBitmap(wallpaper, src, new Rect(0, 0, sw, sh), paint);
++            if (palette.wallpaperDim > 0f) {
++                canvas.drawColor(Color.argb(Math.round(palette.wallpaperDim * 255f), 0, 0, 0));
++            }
++        }
++
++        if (palette.blur > 0f) {
++            int radius = 1 + Math.round(palette.blur * 8f);
++            int[] px = new int[sw * sh];
++            out.getPixels(px, 0, sw, 0, 0, sw, sh);
++            AeroBlur.blur(px, sw, sh, radius);
++            out.setPixels(px, 0, sw, 0, 0, sw, sh);
++        }
++        return out;
++    }
++}
 diff --git a/app/src/main/java/com/limelight/aero/AeroBackgroundDrawable.java b/app/src/main/java/com/limelight/aero/AeroBackgroundDrawable.java
 new file mode 100644
 index 0000000..a9246de
@@ -197,6 +448,69 @@ index 0000000..a9246de
 +    @Override
 +    public int getOpacity() {
 +        return PixelFormat.OPAQUE;
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroBlur.java b/app/src/main/java/com/limelight/aero/AeroBlur.java
+new file mode 100644
+index 0000000..01beb7d
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroBlur.java
+@@ -0,0 +1,57 @@
++package com.limelight.aero;
++
++/**
++ * Small, dependency-free box blur on ARGB pixel arrays. Three passes of a box
++ * blur approximate a Gaussian closely enough for frosted glass, and it works on
++ * every Android version (RenderEffect needs API 31, RenderScript is deprecated).
++ * It is only ever run on a tiny (~190 px) copy of the background.
++ */
++final class AeroBlur {
++    private AeroBlur() {}
++
++    /** Blurs {@code px} (width * height ARGB pixels) in place. */
++    static void blur(int[] px, int width, int height, int radius) {
++        if (radius < 1 || width < 1 || height < 1 || px.length < width * height) {
++            return;
++        }
++        int[] tmp = new int[width * height];
++        for (int i = 0; i < 3; i++) {
++            pass(px, tmp, width, height, radius, true);
++            pass(tmp, px, width, height, radius, false);
++        }
++    }
++
++    private static int clamp(int v, int max) {
++        return v < 0 ? 0 : (v > max ? max : v);
++    }
++
++    private static void pass(int[] in, int[] out, int w, int h, int r, boolean horizontal) {
++        int len = horizontal ? w : h;
++        int lines = horizontal ? h : w;
++        int step = horizontal ? 1 : w;
++        int win = 2 * r + 1;
++        int last = len - 1;
++        for (int line = 0; line < lines; line++) {
++            int base = horizontal ? line * w : line;
++            int a = 0, rr = 0, g = 0, b = 0;
++            for (int k = -r; k <= r; k++) {
++                int p = in[base + clamp(k, last) * step];
++                a += p >>> 24;
++                rr += (p >> 16) & 0xff;
++                g += (p >> 8) & 0xff;
++                b += p & 0xff;
++            }
++            for (int i = 0; i < len; i++) {
++                int half = win / 2;   // round to nearest, otherwise every pass darkens the picture a little
++                out[base + i * step] = (((a + half) / win) << 24) | (((rr + half) / win) << 16)
++                        | (((g + half) / win) << 8) | ((b + half) / win);
++                int add = in[base + clamp(i + r + 1, last) * step];
++                int rem = in[base + clamp(i - r, last) * step];
++                a += (add >>> 24) - (rem >>> 24);
++                rr += ((add >> 16) & 0xff) - ((rem >> 16) & 0xff);
++                g += ((add >> 8) & 0xff) - ((rem >> 8) & 0xff);
++                b += (add & 0xff) - (rem & 0xff);
++            }
++        }
 +    }
 +}
 diff --git a/app/src/main/java/com/limelight/aero/AeroBubbleView.java b/app/src/main/java/com/limelight/aero/AeroBubbleView.java
@@ -517,71 +831,151 @@ index 0000000..f7cf285
 +}
 diff --git a/app/src/main/java/com/limelight/aero/AeroGlassDrawable.java b/app/src/main/java/com/limelight/aero/AeroGlassDrawable.java
 new file mode 100644
-index 0000000..c051553
+index 0000000..e13f526
 --- /dev/null
 +++ b/app/src/main/java/com/limelight/aero/AeroGlassDrawable.java
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,307 @@
 +package com.limelight.aero;
 +
++import android.animation.ValueAnimator;
++import android.graphics.Bitmap;
 +import android.graphics.Canvas;
 +import android.graphics.ColorFilter;
 +import android.graphics.LinearGradient;
 +import android.graphics.Paint;
++import android.graphics.Path;
 +import android.graphics.PixelFormat;
 +import android.graphics.Rect;
 +import android.graphics.RectF;
 +import android.graphics.Shader;
 +import android.graphics.drawable.Drawable;
++import android.view.View;
++import android.view.animation.OvershootInterpolator;
 +
 +/**
-+ * A glossy Frutiger Aero glass surface: tinted translucent body, bright gloss
-+ * highlight over the top half, warm glow along the bottom, a thin white rim and
-+ * a soft shadow. Port of AeroGlass.qml from the desktop theme.
++ * A "liquid glass" Frutiger Aero surface.
 + *
-+ * Everything is drawn inside the drawable's bounds (shadow and focus ring live
-+ * in the {@code inset} margin) so it survives parents that clip their children.
++ *  - frosted: shows the blurred background (sky or wallpaper) that lies behind the view,
++ *    clipped to a generously rounded shape
++ *  - a light tint, a soft sheen that fades to nothing (no hard gloss band) and an inner glow
++ *  - a specular rim, brightest at the top-left and bottom-right and faint along the sides
++ *  - diffuse shadow and a soft glow instead of a hard focus ring
++ *  - springy motion: it grows when hovered or selected and squashes when pressed, overshooting a
++ *    little before settling, driven by the view state (so it works with touch, TV remote and mouse)
++ *
++ * Everything is drawn inside the drawable's bounds (shadow, glow and the spring's overshoot live in
++ * the {@code inset} margin) so it survives parents that clip their children.
 + */
 +final class AeroGlassDrawable extends Drawable {
++    private static final float REST = 1f;
++    private static final float HOVER = 1.035f;
++    private static final float PRESS = 0.955f;
++
 +    private final int tint;
 +    private final float density;     // 0..1, how opaque the glass is
++    private final boolean blur;      // show the blurred backdrop
 +    private final float dp;          // pixels per dp
 +    private final float radiusDp;    // corner radius; ignored for orbs
 +    private final float insetDp;     // margin kept free around the body
 +    private final boolean orb;
 +    private final boolean shadow;
-+    private final boolean hovered;
-+    private final boolean pressed;
-+    private final boolean focused;
++    private final boolean springy;
++
++    private boolean hovered;
++    private boolean pressed;
++    private boolean focused;
++    private float spring = REST;
++    private float glowAmount = 0f;   // 0..1, hover / focus glow
++    private ValueAnimator animator;
 +
 +    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
 +    private final RectF body = new RectF();
-+    private final RectF glow = new RectF();
-+    private final RectF gloss = new RectF();
 +    private final RectF tmp = new RectF();
++    private final Rect srcRect = new Rect();
++    private final Path clip = new Path();
++    private final int[] location = new int[2];
 +
-+    private Shader bodyShader;
-+    private Shader glowShader;
-+    private Shader glossShader;
++    private Shader tintShader;
++    private Shader sheenShader;
++    private Shader rimShader;
 +    private float radius;
-+    private float innerRadius;
 +
-+    AeroGlassDrawable(int tint, float density, float dp, float radiusDp, float insetDp,
-+                      boolean orb, boolean shadow, boolean hovered, boolean pressed, boolean focused) {
++    AeroGlassDrawable(int tint, float density, boolean blur, float dp, float radiusDp, float insetDp,
++                      boolean orb, boolean shadow, boolean springy) {
 +        this.tint = tint;
 +        this.density = density;
++        this.blur = blur;
 +        this.dp = dp;
 +        this.radiusDp = radiusDp;
 +        this.insetDp = insetDp;
 +        this.orb = orb;
 +        this.shadow = shadow;
-+        this.hovered = hovered;
-+        this.pressed = pressed;
-+        this.focused = focused;
++        this.springy = springy;
 +    }
 +
++    /** Opacity of the tint layer. Less is needed when the blurred backdrop already frosts the glass. */
 +    private float strength() {
-+        return 0.25f + 0.55f * density;
++        return blur ? 0.10f + 0.40f * density : 0.22f + 0.55f * density;
 +    }
++
++    // ------------------------------------------------------------------ state / spring
++
++    @Override
++    public boolean isStateful() {
++        return true;
++    }
++
++    @Override
++    protected boolean onStateChange(int[] state) {
++        boolean newPressed = false;
++        boolean newHovered = false;
++        boolean newFocused = false;
++        for (int s : state) {
++            if (s == android.R.attr.state_pressed) {
++                newPressed = true;
++            }
++            else if (s == android.R.attr.state_hovered) {
++                newHovered = true;
++            }
++            else if (s == android.R.attr.state_selected || s == android.R.attr.state_focused) {
++                newFocused = true;
++            }
++        }
++        if (newPressed == pressed && newHovered == hovered && newFocused == focused) {
++            return false;
++        }
++        pressed = newPressed;
++        hovered = newHovered;
++        focused = newFocused;
++
++        final float targetSpring = !springy ? REST : (pressed ? PRESS : ((hovered || focused) ? HOVER : REST));
++        final float targetGlow = (focused || pressed) ? 1f : (hovered ? 0.55f : 0f);
++        final float fromSpring = spring;
++        final float fromGlow = glowAmount;
++        if (animator != null) {
++            animator.cancel();
++        }
++        animator = ValueAnimator.ofFloat(0f, 1f);
++        // Pressing is quick and tight; letting go is slow and bouncy (that is the "liquid" feel)
++        animator.setDuration(pressed ? 110 : 520);
++        animator.setInterpolator(pressed ? new android.view.animation.DecelerateInterpolator()
++                                         : new OvershootInterpolator(2.2f));
++        animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
++            @Override
++            public void onAnimationUpdate(ValueAnimator a) {
++                float t = (Float) a.getAnimatedValue();
++                spring = fromSpring + (targetSpring - fromSpring) * t;
++                glowAmount = Math.max(0f, Math.min(1f, fromGlow + (targetGlow - fromGlow) * Math.min(1f, t)));
++                invalidateSelf();
++            }
++        });
++        animator.start();
++        invalidateSelf();
++        return true;
++    }
++
++    // ------------------------------------------------------------------ geometry
 +
 +    @Override
 +    protected void onBoundsChange(Rect bounds) {
@@ -591,104 +985,146 @@ index 0000000..c051553
 +            body.setEmpty();
 +            return;
 +        }
-+
 +        radius = orb ? Math.min(body.width(), body.height()) / 2f
 +                     : Math.min(radiusDp * dp, Math.min(body.width(), body.height()) / 2f);
-+        innerRadius = Math.max(0f, radius - 2f * dp);
 +
 +        float a = strength();
-+        float hover = hovered ? 0.10f : 0f;
-+        bodyShader = new LinearGradient(0, body.top, 0, body.bottom,
++        tintShader = new LinearGradient(0, body.top, 0, body.bottom,
 +                new int[] {
-+                        AeroColors.withAlpha(AeroColors.lighter(tint, 1.15f), a + hover),
-+                        AeroColors.withAlpha(tint, a + hover * 0.6f),
-+                        AeroColors.withAlpha(AeroColors.darker(tint, 1.45f), Math.min(1f, a + 0.12f)),
++                        AeroColors.withAlpha(AeroColors.lighter(tint, 1.25f), a),
++                        AeroColors.withAlpha(tint, a * 0.85f),
++                        AeroColors.withAlpha(AeroColors.darker(tint, 1.35f), Math.min(1f, a * 1.05f + 0.04f)),
 +                },
-+                new float[] {0f, 0.5f, 1f}, Shader.TileMode.CLAMP);
++                new float[] {0f, 0.55f, 1f}, Shader.TileMode.CLAMP);
 +
-+        // Warm glow along the bottom edge (bottom 32%)
-+        glow.set(body.left + 2f * dp, body.bottom - body.height() * 0.32f - 2f * dp,
-+                body.right - 2f * dp, body.bottom - 2f * dp);
-+        glowShader = new LinearGradient(0, glow.top, 0, glow.bottom,
-+                AeroColors.withAlpha(AeroColors.lighter(tint, 1.4f), 0f),
-+                AeroColors.withAlpha(AeroColors.lighter(tint, 1.4f), 0.28f),
-+                Shader.TileMode.CLAMP);
++        // Sheen: fades smoothly to nothing, so there is no visible band edge
++        sheenShader = new LinearGradient(0, body.top, 0, body.bottom,
++                new int[] {0x33ffffff, 0x00ffffff, 0x00ffffff,
++                           AeroColors.withAlpha(AeroColors.lighter(tint, 1.6f), 0.14f)},
++                new float[] {0f, 0.45f, 0.85f, 1f}, Shader.TileMode.CLAMP);
 +
-+        // Gloss highlight over the top half
-+        gloss.set(body.left + 2f * dp, body.top + 2f * dp,
-+                body.right - 2f * dp, body.top + body.height() * 0.5f);
-+        glossShader = new LinearGradient(0, gloss.top, 0, gloss.bottom,
-+                0x8cffffff,   // white at 55%
-+                0x0fffffff,   // white at 6%
-+                Shader.TileMode.CLAMP);
++        // Specular rim: bright top-left and bottom-right, faint in between
++        rimShader = new LinearGradient(body.left, body.top, body.right, body.bottom,
++                new int[] {0xffffffff, 0xccffffff, 0x2effffff, 0xb3ffffff, 0xf2ffffff},
++                new float[] {0f, 0.18f, 0.5f, 0.82f, 1f}, Shader.TileMode.CLAMP);
 +    }
++
++    // ------------------------------------------------------------------ drawing
 +
 +    @Override
 +    public void draw(Canvas canvas) {
-+        if (body.isEmpty() || bodyShader == null) {
++        if (body.isEmpty() || tintShader == null) {
 +            return;
 +        }
++        int save = canvas.save();
++        canvas.scale(spring, spring, body.centerX(), body.centerY());
 +
-+        // Soft drop shadow: two stacked translucent shapes
++        // Soft diffuse shadow: stacked translucent shapes that fade outwards
 +        if (shadow) {
 +            paint.setShader(null);
 +            paint.setStyle(Paint.Style.FILL);
-+
-+            paint.setColor(0x1f000000);
-+            tmp.set(body);
-+            tmp.inset(-1f * dp, -1f * dp);
-+            tmp.offset(0f, 1.5f * dp);
-+            canvas.drawRoundRect(tmp, radius + dp, radius + dp, paint);
-+
-+            paint.setColor(0x2e000000);
-+            tmp.set(body);
-+            tmp.offset(0f, 1f * dp);
-+            canvas.drawRoundRect(tmp, radius, radius, paint);
++            paint.setColor(0x13001018);
++            for (int i = 4; i >= 0; i--) {
++                float grow = (i * 1.6f + 0.5f) * dp;
++                tmp.set(body.left - grow, body.top - grow + 2.2f * dp, body.right + grow, body.bottom + grow + 2.2f * dp);
++                canvas.drawRoundRect(tmp, radius + grow, radius + grow, paint);
++            }
 +        }
 +
-+        // Tinted body
++        // Glow around the glass when hovered or selected
++        if (glowAmount > 0.01f) {
++            paint.setShader(null);
++            paint.setStyle(Paint.Style.FILL);
++            for (int i = 3; i >= 0; i--) {
++                float grow = (1.5f + i * 1.4f) * dp;
++                paint.setColor(AeroColors.withAlpha(AeroColors.lighter(tint, 1.6f), (0.12f - i * 0.025f) * glowAmount));
++                tmp.set(body.left - grow, body.top - grow, body.right + grow, body.bottom + grow);
++                canvas.drawRoundRect(tmp, radius + grow, radius + grow, paint);
++            }
++        }
++
++        drawBackdrop(canvas);
++
++        // Tint
 +        paint.setStyle(Paint.Style.FILL);
-+        paint.setShader(bodyShader);
++        paint.setShader(tintShader);
 +        canvas.drawRoundRect(body, radius, radius, paint);
 +
-+        // Glow
-+        paint.setShader(glowShader);
-+        canvas.drawRoundRect(glow, innerRadius, innerRadius, paint);
-+
-+        // Gloss, slightly stronger on opaque glass
-+        paint.setShader(glossShader);
-+        paint.setAlpha(Math.round(255f * Math.min(1f, 0.55f + 0.45f * density)));
-+        canvas.drawRoundRect(gloss, innerRadius, innerRadius, paint);
++        // Sheen
++        paint.setShader(sheenShader);
++        paint.setAlpha(Math.round(255f * (0.5f + 0.5f * density)));
++        canvas.drawRoundRect(body, radius, radius, paint);
 +        paint.setAlpha(255);
 +        paint.setShader(null);
 +
-+        // Pressed state darkens the whole surface
++        // Inner glow: nested hairlines that fade towards the centre
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeWidth(1.5f * dp);
++        for (int i = 0; i < 3; i++) {
++            float off = (1f + i * 1.5f) * dp;
++            tmp.set(body.left + off, body.top + off, body.right - off, body.bottom - off);
++            if (tmp.width() <= 0 || tmp.height() <= 0) {
++                break;
++            }
++            paint.setColor(AeroColors.withAlpha(0xffffffff, 0.11f - i * 0.035f));
++            float r = Math.max(0f, radius - off);
++            canvas.drawRoundRect(tmp, r, r, paint);
++        }
++
++        // Pressed: dim softly
 +        if (pressed) {
-+            paint.setColor(0x40000000);
++            paint.setStyle(Paint.Style.FILL);
++            paint.setColor(0x33000a14);
 +            canvas.drawRoundRect(body, radius, radius, paint);
 +        }
 +
-+        // Rim
-+        float rimWidth = (focused ? 2f : 1f) * dp;
++        // Specular rim
++        float rimWidth = (focused ? 2f : 1.5f) * dp;
 +        paint.setStyle(Paint.Style.STROKE);
 +        paint.setStrokeWidth(rimWidth);
-+        paint.setColor(focused ? 0xffffffff : 0x8cffffff);
++        paint.setShader(rimShader);
++        paint.setAlpha(Math.round(255f * (focused ? 1f : (0.72f + 0.2f * glowAmount))));
 +        tmp.set(body);
 +        tmp.inset(rimWidth / 2f, rimWidth / 2f);
-+        canvas.drawRoundRect(tmp, Math.max(0f, radius - rimWidth / 2f), Math.max(0f, radius - rimWidth / 2f), paint);
-+
-+        // Selection ring for keyboard / gamepad / TV-remote navigation
-+        if (focused) {
-+            float ringWidth = 3f * dp;
-+            Rect b = getBounds();
-+            paint.setStrokeWidth(ringWidth);
-+            paint.setColor(AeroColors.withAlpha(AeroColors.lighter(tint, 1.5f), 0.85f));
-+            tmp.set(b.left + ringWidth / 2f, b.top + ringWidth / 2f, b.right - ringWidth / 2f, b.bottom - ringWidth / 2f);
-+            float ringRadius = radius + (body.left - tmp.left);
-+            canvas.drawRoundRect(tmp, ringRadius, ringRadius, paint);
-+        }
-+
++        float rr = Math.max(0f, radius - rimWidth / 2f);
++        canvas.drawRoundRect(tmp, rr, rr, paint);
++        paint.setAlpha(255);
++        paint.setShader(null);
 +        paint.setStyle(Paint.Style.FILL);
++
++        canvas.restoreToCount(save);
++    }
++
++    /** Draws the part of the blurred background that sits behind this view, clipped to the glass shape. */
++    private void drawBackdrop(Canvas canvas) {
++        Bitmap backdrop = blur ? AeroBackdrop.bitmap() : null;
++        if (backdrop == null) {
++            return;
++        }
++        Callback callback = getCallback();
++        if (!(callback instanceof View)) {
++            return;
++        }
++        View view = (View) callback;
++        view.getLocationInWindow(location);
++        float wx = AeroBackdrop.windowWidth();
++        float wy = AeroBackdrop.windowHeight();
++        float sx = backdrop.getWidth() / wx;
++        float sy = backdrop.getHeight() / wy;
++        // Account for the spring scale: the view is drawn scaled around the centre of the body
++        float left = location[0] + (body.left - getBounds().left);
++        float top = location[1] + (body.top - getBounds().top);
++        srcRect.set(Math.round(left * sx), Math.round(top * sy),
++                Math.round((left + body.width()) * sx), Math.round((top + body.height()) * sy));
++        if (srcRect.width() < 1 || srcRect.height() < 1) {
++            return;
++        }
++        int save = canvas.save();
++        clip.reset();
++        clip.addRoundRect(body, radius, radius, Path.Direction.CW);
++        canvas.clipPath(clip);
++        canvas.drawBitmap(backdrop, srcRect, body, bitmapPaint);
++        canvas.restoreToCount(save);
 +    }
 +
 +    @Override
@@ -708,10 +1144,10 @@ index 0000000..c051553
 +}
 diff --git a/app/src/main/java/com/limelight/aero/AeroPalette.java b/app/src/main/java/com/limelight/aero/AeroPalette.java
 new file mode 100644
-index 0000000..f5c460a
+index 0000000..8f7b2c8
 --- /dev/null
 +++ b/app/src/main/java/com/limelight/aero/AeroPalette.java
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,160 @@
 +package com.limelight.aero;
 +
 +import android.content.Context;
@@ -730,6 +1166,9 @@ index 0000000..f5c460a
 +    public static final String PREF_COLOR = "edit_aero_color";
 +    public static final String PREF_GLASS = "seekbar_aero_glass";
 +    public static final String PREF_BUBBLES = "checkbox_aero_bubbles";
++    public static final String PREF_BLUR = "seekbar_aero_blur";
++    public static final String PREF_WALLPAPER = "edit_aero_wallpaper";
++    public static final String PREF_WALLPAPER_DIM = "seekbar_aero_wallpaper_dim";
 +
 +    public static final String PRESET_CUSTOM = "custom";
 +
@@ -738,6 +1177,9 @@ index 0000000..f5c460a
 +    public static final String DEFAULT_COLOR = "#1c9bdc";
 +    public static final int DEFAULT_GLASS = 55;
 +    public static final boolean DEFAULT_BUBBLES = true;
++    public static final int DEFAULT_BLUR = 60;
++    public static final int DEFAULT_WALLPAPER_DIM = 25;
++    public static final int WALLPAPER_DIM_MAX = 80;
 +
 +    public static final int GLASS_MIN = 10;
 +    public static final int GLASS_MAX = 90;
@@ -755,12 +1197,22 @@ index 0000000..f5c460a
 +    public final boolean bubbles;
 +    /** Glass opacity, 0.1 (very clear) to 0.9 (nearly opaque). */
 +    public final float glass;
++    /** Backdrop blur behind the glass, 0 (plain translucent glass) to 1. */
++    public final float blur;
++    /** Content URI of the wallpaper (image, GIF or video), or "" for the sky. */
++    public final String wallpaper;
++    /** How much the wallpaper is darkened, 0 to 0.8. */
++    public final float wallpaperDim;
 +    public final int top;
 +    public final int mid;
 +    public final int bottom;
 +    public final int accent;
 +
-+    private AeroPalette(boolean enabled, boolean bubbles, float glass, int[] scheme) {
++    private AeroPalette(boolean enabled, boolean bubbles, float glass, int[] scheme,
++                        float blur, String wallpaper, float wallpaperDim) {
++        this.blur = blur;
++        this.wallpaper = enabled && wallpaper != null ? wallpaper : "";
++        this.wallpaperDim = wallpaperDim;
 +        this.enabled = enabled;
 +        this.bubbles = enabled && bubbles;
 +        this.glass = glass;
@@ -772,8 +1224,15 @@ index 0000000..f5c460a
 +
 +    /** Pure factory (no Android dependencies); invalid input falls back to the defaults. */
 +    public static AeroPalette fromValues(boolean enabled, String preset, String hex, int glassPercent, boolean bubbles) {
++        return fromValues(enabled, preset, hex, glassPercent, bubbles, DEFAULT_BLUR, "", DEFAULT_WALLPAPER_DIM);
++    }
++
++    public static AeroPalette fromValues(boolean enabled, String preset, String hex, int glassPercent, boolean bubbles,
++                                         int blurPercent, String wallpaper, int dimPercent) {
 +        int clamped = Math.max(GLASS_MIN, Math.min(GLASS_MAX, glassPercent));
-+        return new AeroPalette(enabled, bubbles, clamped / 100f, schemeFor(preset, hex));
++        return new AeroPalette(enabled, bubbles, clamped / 100f, schemeFor(preset, hex),
++                Math.max(0, Math.min(100, blurPercent)) / 100f, wallpaper,
++                Math.max(0, Math.min(WALLPAPER_DIM_MAX, dimPercent)) / 100f);
 +    }
 +
 +    public static AeroPalette read(Context context) {
@@ -783,7 +1242,10 @@ index 0000000..f5c460a
 +                prefs.getString(PREF_PRESET, DEFAULT_PRESET),
 +                prefs.getString(PREF_COLOR, DEFAULT_COLOR),
 +                prefs.getInt(PREF_GLASS, DEFAULT_GLASS),
-+                prefs.getBoolean(PREF_BUBBLES, DEFAULT_BUBBLES));
++                prefs.getBoolean(PREF_BUBBLES, DEFAULT_BUBBLES),
++                prefs.getInt(PREF_BLUR, DEFAULT_BLUR),
++                prefs.getString(PREF_WALLPAPER, ""),
++                prefs.getInt(PREF_WALLPAPER_DIM, DEFAULT_WALLPAPER_DIM));
 +    }
 +
 +    /** True for exactly "#rrggbb" (either case). */
@@ -794,7 +1256,8 @@ index 0000000..f5c460a
 +    /** True if the given SharedPreferences key belongs to the Aero theme. */
 +    public static boolean isAeroPreference(String key) {
 +        return PREF_ENABLED.equals(key) || PREF_PRESET.equals(key) || PREF_COLOR.equals(key)
-+                || PREF_GLASS.equals(key) || PREF_BUBBLES.equals(key);
++                || PREF_GLASS.equals(key) || PREF_BUBBLES.equals(key)
++                || PREF_BLUR.equals(key) || PREF_WALLPAPER.equals(key) || PREF_WALLPAPER_DIM.equals(key);
 +    }
 +
 +    public static boolean isEnabled(Context context) {
@@ -839,15 +1302,18 @@ index 0000000..f5c460a
 +        result = 31 * result + mid;
 +        result = 31 * result + bottom;
 +        result = 31 * result + accent;
++        result = 31 * result + Float.floatToIntBits(blur);
++        result = 31 * result + wallpaper.hashCode();
++        result = 31 * result + Float.floatToIntBits(wallpaperDim);
 +        return result;
 +    }
 +}
 diff --git a/app/src/main/java/com/limelight/aero/AeroTheme.java b/app/src/main/java/com/limelight/aero/AeroTheme.java
 new file mode 100644
-index 0000000..42d733f
+index 0000000..d563b46
 --- /dev/null
 +++ b/app/src/main/java/com/limelight/aero/AeroTheme.java
-@@ -0,0 +1,269 @@
+@@ -0,0 +1,320 @@
 +package com.limelight.aero;
 +
 +import android.app.Activity;
@@ -856,7 +1322,7 @@ index 0000000..42d733f
 +import android.graphics.Color;
 +import android.graphics.drawable.ColorDrawable;
 +import android.graphics.drawable.Drawable;
-+import android.graphics.drawable.StateListDrawable;
++import android.net.Uri;
 +import android.util.TypedValue;
 +import android.view.View;
 +import android.view.ViewGroup;
@@ -878,12 +1344,12 @@ index 0000000..42d733f
 +    private AeroTheme() {}
 +
 +    // Layout constants, in dp
-+    private static final float PC_TILE_RADIUS = 18f;
-+    private static final float APP_TILE_RADIUS = 12f;
-+    private static final float TILE_INSET = 5f;       // room for the shadow and focus ring
-+    private static final float ORB_INSET = 4f;
++    private static final float PC_TILE_RADIUS = 26f;
++    private static final float APP_TILE_RADIUS = 20f;
++    private static final float TILE_INSET = 7f;       // room for the shadow, glow and spring overshoot
++    private static final float ORB_INSET = 6f;
 +    private static final float ORB_ICON_PADDING = 13f;
-+    private static final float PANE_RADIUS = 16f;
++    private static final float PANE_RADIUS = 24f;
 +
 +    private static final int[] ORB_BUTTON_IDS = {
 +            R.id.settingsButton, R.id.helpButton, R.id.manuallyAddPc
@@ -917,6 +1383,7 @@ index 0000000..42d733f
 +                decor.setTag(R.id.aero_style_signature, null);
 +                decor.setTag(R.id.aero_original_background, null);
 +                setBubbles(activity, content, false);
++                setWallpaper(activity, content, null);
 +                for (int id : ORB_BUTTON_IDS) {
 +                    unstyleOrb(activity.findViewById(id));
 +                }
@@ -935,7 +1402,14 @@ index 0000000..42d733f
 +            decor.setTag(R.id.aero_style_signature, signature);
 +        }
 +
++        setWallpaper(activity, content, palette);
 +        setBubbles(activity, content, palette.bubbles);
++        AeroBackdrop.ensure(activity, palette, new Runnable() {
++            @Override
++            public void run() {
++                redrawGlass(decor);
++            }
++        });
 +
 +        for (int id : ORB_BUTTON_IDS) {
 +            View v = activity.findViewById(id);
@@ -957,6 +1431,45 @@ index 0000000..42d733f
 +            }
 +        }
 +        return new ColorDrawable(0xff303030);
++    }
++
++    /** Adds, updates or removes the wallpaper layer (image / GIF / video). It sits behind the bubbles. */
++    private static void setWallpaper(Activity activity, ViewGroup content, AeroPalette palette) {
++        if (content == null) {
++            return;
++        }
++        View existing = content.findViewById(R.id.aero_wallpaper_view);
++        boolean wanted = palette != null && palette.wallpaper.length() > 0;
++        if (!wanted) {
++            if (existing != null) {
++                content.removeView(existing);
++            }
++            return;
++        }
++        AeroWallpaperView view;
++        if (existing instanceof AeroWallpaperView) {
++            view = (AeroWallpaperView) existing;
++        }
++        else {
++            view = new AeroWallpaperView(activity);
++            view.setId(R.id.aero_wallpaper_view);
++            content.addView(view, 0, new FrameLayout.LayoutParams(
++                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
++        }
++        view.setSource(Uri.parse(palette.wallpaper), palette.wallpaperDim);
++    }
++
++    /** Glass views cache their drawing, so ask the themed ones to repaint (the blurred backdrop changed). */
++    private static void redrawGlass(View view) {
++        if (view.getTag(R.id.aero_style_signature) != null) {
++            view.invalidate();
++        }
++        if (view instanceof ViewGroup) {
++            ViewGroup group = (ViewGroup) view;
++            for (int i = 0; i < group.getChildCount(); i++) {
++                redrawGlass(group.getChildAt(i));
++            }
++        }
 +    }
 +
 +    private static void setBubbles(Activity activity, ViewGroup content, boolean wanted) {
@@ -990,7 +1503,7 @@ index 0000000..42d733f
 +                    button.getPaddingLeft(), button.getPaddingTop(),
 +                    button.getPaddingRight(), button.getPaddingBottom()});
 +        }
-+        button.setBackground(selector(palette.accent, palette.glass, dp, 0f, ORB_INSET, true, true));
++        button.setBackground(glass(palette.accent, palette, dp, 0f, ORB_INSET, true, true, true));
 +        int pad = Math.round(ORB_ICON_PADDING * dp);
 +        button.setPadding(pad, pad, pad, pad);
 +        button.setTag(R.id.aero_style_signature, signature);
@@ -1044,8 +1557,8 @@ index 0000000..42d733f
 +            return;
 +        }
 +        float dp = context.getResources().getDisplayMetrics().density;
-+        tile.setBackground(selector(palette.accent, palette.glass, dp,
-+                largeTile ? PC_TILE_RADIUS : APP_TILE_RADIUS, TILE_INSET, false, true));
++        tile.setBackground(glass(palette.accent, palette, dp,
++                largeTile ? PC_TILE_RADIUS : APP_TILE_RADIUS, TILE_INSET, false, true, true));
 +        tile.setTag(R.id.aero_style_signature, signature);
 +    }
 +
@@ -1056,10 +1569,24 @@ index 0000000..42d733f
 +            if (original == null) {
 +                grid.setTag(R.id.aero_original_selector, grid.getSelector());
 +                grid.setSelector(new ColorDrawable(Color.TRANSPARENT));
++                // The frosted backdrop depends on where a tile is on screen, so repaint tiles while scrolling
++                grid.setOnScrollListener(new AbsListView.OnScrollListener() {
++                    @Override
++                    public void onScrollStateChanged(AbsListView view, int scrollState) {
++                    }
++
++                    @Override
++                    public void onScroll(AbsListView view, int first, int visible, int total) {
++                        for (int i = 0; i < view.getChildCount(); i++) {
++                            view.getChildAt(i).invalidate();
++                        }
++                    }
++                });
 +            }
 +        }
 +        else if (original instanceof Drawable) {
 +            grid.setSelector((Drawable) original);
++            grid.setOnScrollListener(null);
 +            grid.setTag(R.id.aero_original_selector, null);
 +        }
 +    }
@@ -1094,27 +1621,380 @@ index 0000000..42d733f
 +        }
 +        float dp = context.getResources().getDisplayMetrics().density;
 +        pane.setBackground(new AeroGlassDrawable(AeroColors.darker(palette.mid, 1.35f),
-+                Math.max(0.6f, palette.glass), dp, PANE_RADIUS, 6f, false, false, false, false, false));
++                Math.max(0.6f, palette.glass), palette.blur > 0f, dp, PANE_RADIUS, 6f, false, false, false));
 +        pane.setTag(R.id.aero_style_signature, signature);
 +    }
 +
 +    // ------------------------------------------------------------------ Helpers
 +
-+    /** Builds the glass background with its pressed / selected / focused / hovered variants. */
-+    private static StateListDrawable selector(int tint, float density, float dp, float radiusDp,
-+                                              float insetDp, boolean orb, boolean shadow) {
-+        StateListDrawable states = new StateListDrawable();
-+        states.addState(new int[] {android.R.attr.state_pressed},
-+                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, false, true, false));
-+        states.addState(new int[] {android.R.attr.state_selected},
-+                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, false, false, true));
-+        states.addState(new int[] {android.R.attr.state_focused},
-+                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, false, false, true));
-+        states.addState(new int[] {android.R.attr.state_hovered},
-+                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, true, false, false));
-+        states.addState(new int[] {},
-+                new AeroGlassDrawable(tint, density, dp, radiusDp, insetDp, orb, shadow, false, false, false));
-+        return states;
++    /** Builds one glass background; it follows the view state (pressed / selected / focused / hovered) itself. */
++    private static Drawable glass(int tint, AeroPalette palette, float dp, float radiusDp,
++                                  float insetDp, boolean orb, boolean shadow, boolean springy) {
++        return new AeroGlassDrawable(tint, palette.glass, palette.blur > 0f, dp, radiusDp, insetDp,
++                orb, shadow, springy);
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroWallpaper.java b/app/src/main/java/com/limelight/aero/AeroWallpaper.java
+new file mode 100644
+index 0000000..a54a54c
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroWallpaper.java
+@@ -0,0 +1,82 @@
++package com.limelight.aero;
++
++import android.content.Context;
++import android.graphics.Bitmap;
++import android.graphics.BitmapFactory;
++import android.media.MediaMetadataRetriever;
++import android.net.Uri;
++
++import java.io.InputStream;
++import java.util.Locale;
++
++/** Helpers to classify and decode the user's wallpaper file. All of it may be slow: call off the UI thread. */
++final class AeroWallpaper {
++    private AeroWallpaper() {}
++
++    static boolean isVideo(Context context, Uri uri) {
++        String type = null;
++        try {
++            type = context.getContentResolver().getType(uri);
++        }
++        catch (Exception ignored) {
++        }
++        if (type != null) {
++            return type.startsWith("video/");
++        }
++        String path = String.valueOf(uri).toLowerCase(Locale.ROOT);
++        return path.endsWith(".mp4") || path.endsWith(".webm") || path.endsWith(".mkv")
++                || path.endsWith(".mov") || path.endsWith(".3gp");
++    }
++
++    /**
++     * A single frame, decoded at roughly {@code targetSide} pixels on its long side (or a bit more).
++     * Returns null if the file cannot be read. GIFs yield their first frame.
++     */
++    static Bitmap loadStill(Context context, Uri uri, int targetSide) {
++        try {
++            if (isVideo(context, uri)) {
++                MediaMetadataRetriever retriever = new MediaMetadataRetriever();
++                try {
++                    retriever.setDataSource(context, uri);
++                    return retriever.getFrameAtTime(0);
++                }
++                finally {
++                    retriever.release();
++                }
++            }
++
++            BitmapFactory.Options bounds = new BitmapFactory.Options();
++            bounds.inJustDecodeBounds = true;
++            InputStream in = context.getContentResolver().openInputStream(uri);
++            if (in == null) {
++                return null;
++            }
++            try {
++                BitmapFactory.decodeStream(in, null, bounds);
++            }
++            finally {
++                in.close();
++            }
++            int big = Math.max(bounds.outWidth, bounds.outHeight);
++            if (big <= 0) {
++                return null;
++            }
++            BitmapFactory.Options options = new BitmapFactory.Options();
++            options.inSampleSize = Math.max(1, big / Math.max(1, targetSide));
++            in = context.getContentResolver().openInputStream(uri);
++            if (in == null) {
++                return null;
++            }
++            try {
++                return BitmapFactory.decodeStream(in, null, options);
++            }
++            finally {
++                in.close();
++            }
++        }
++        catch (Throwable t) {
++            // Missing file, revoked permission, unsupported codec, out of memory...
++            return null;
++        }
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroWallpaperView.java b/app/src/main/java/com/limelight/aero/AeroWallpaperView.java
+new file mode 100644
+index 0000000..37a96a6
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroWallpaperView.java
+@@ -0,0 +1,269 @@
++package com.limelight.aero;
++
++import android.content.Context;
++import android.graphics.Bitmap;
++import android.graphics.Color;
++import android.graphics.Matrix;
++import android.graphics.SurfaceTexture;
++import android.graphics.drawable.BitmapDrawable;
++import android.graphics.drawable.Drawable;
++import android.media.MediaPlayer;
++import android.net.Uri;
++import android.os.Build;
++import android.os.Handler;
++import android.os.Looper;
++import android.view.Surface;
++import android.view.TextureView;
++import android.view.View;
++import android.view.ViewGroup;
++import android.widget.FrameLayout;
++import android.widget.ImageView;
++
++/**
++ * The wallpaper layer: a still image, an animated GIF / WebP (Android 9+; older versions show the
++ * first frame) or a looping silent video, cropped to fill the screen and darkened by the dim setting.
++ * It pauses while its window is not focused, so it costs nothing while streaming, and if the file
++ * cannot be shown it stays transparent, leaving the sky visible.
++ */
++final class AeroWallpaperView extends FrameLayout implements TextureView.SurfaceTextureListener {
++    private static final int MAX_IMAGE_SIDE = 2048;
++
++    private final Handler main = new Handler(Looper.getMainLooper());
++    private final ImageView image;
++    private final View dim;
++
++    private Uri uri;
++    private int load = 0;
++    private Drawable drawable;
++    private TextureView texture;
++    private MediaPlayer player;
++    private boolean playerReady;
++    private int videoWidth;
++    private int videoHeight;
++
++    AeroWallpaperView(Context context) {
++        super(context);
++        image = new ImageView(context);
++        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
++        addView(image, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
++        dim = new View(context);
++        addView(dim, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
++    }
++
++    void setSource(Uri newUri, float dimAmount) {
++        dim.setBackgroundColor(Color.argb(Math.round(Math.max(0f, Math.min(1f, dimAmount)) * 255f), 0, 0, 0));
++        if (newUri.equals(uri)) {
++            return;
++        }
++        uri = newUri;
++        reload();
++    }
++
++    private void reload() {
++        release();
++        if (uri == null) {
++            return;
++        }
++        final int mine = ++load;
++        final Context context = getContext().getApplicationContext();
++        final Uri source = uri;
++        new Thread(new Runnable() {
++            @Override
++            public void run() {
++                final boolean video = AeroWallpaper.isVideo(context, source);
++                Drawable decoded = null;
++                if (!video) {
++                    try {
++                        if (Build.VERSION.SDK_INT >= 28) {
++                            decoded = AeroApi28.decode(context.getContentResolver(), source, MAX_IMAGE_SIDE);
++                        }
++                        else {
++                            Bitmap bitmap = AeroWallpaper.loadStill(context, source, MAX_IMAGE_SIDE);
++                            if (bitmap != null) {
++                                decoded = new BitmapDrawable(context.getResources(), bitmap);
++                            }
++                        }
++                    }
++                    catch (Throwable t) {
++                        decoded = null;
++                    }
++                }
++                final Drawable result = decoded;
++                main.post(new Runnable() {
++                    @Override
++                    public void run() {
++                        if (mine != load) {
++                            return;
++                        }
++                        if (video) {
++                            startVideo();
++                        }
++                        else if (result != null) {
++                            drawable = result;
++                            image.setImageDrawable(result);
++                            updatePlaying();
++                        }
++                    }
++                });
++            }
++        }, "aero-wallpaper").start();
++    }
++
++    // ------------------------------------------------------------------ video
++
++    private void startVideo() {
++        if (texture != null) {
++            return;
++        }
++        texture = new TextureView(getContext());
++        texture.setSurfaceTextureListener(this);
++        addView(texture, 1, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
++    }
++
++    @Override
++    public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int width, int height) {
++        if (uri == null || player != null) {
++            return;
++        }
++        try {
++            player = new MediaPlayer();
++            player.setSurface(new Surface(surfaceTexture));
++            player.setDataSource(getContext(), uri);
++            player.setLooping(true);
++            player.setVolume(0f, 0f);
++            player.setOnVideoSizeChangedListener(new MediaPlayer.OnVideoSizeChangedListener() {
++                @Override
++                public void onVideoSizeChanged(MediaPlayer mp, int width, int height) {
++                    videoWidth = width;
++                    videoHeight = height;
++                    applyCrop();
++                }
++            });
++            player.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
++                @Override
++                public void onPrepared(MediaPlayer mp) {
++                    playerReady = true;
++                    updatePlaying();
++                }
++            });
++            player.setOnErrorListener(new MediaPlayer.OnErrorListener() {
++                @Override
++                public boolean onError(MediaPlayer mp, int what, int extra) {
++                    // Unsupported codec or file gone: fall back to the sky
++                    release();
++                    return true;
++                }
++            });
++            player.prepareAsync();
++        }
++        catch (Throwable t) {
++            release();
++        }
++    }
++
++    @Override
++    public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
++        applyCrop();
++    }
++
++    @Override
++    public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
++        if (player != null) {
++            try {
++                player.release();
++            }
++            catch (Throwable ignored) {
++            }
++            player = null;
++            playerReady = false;
++        }
++        return true;
++    }
++
++    @Override
++    public void onSurfaceTextureUpdated(SurfaceTexture surface) {
++    }
++
++    /** TextureView stretches the video to fill itself; undo that and crop instead. */
++    private void applyCrop() {
++        if (texture == null || videoWidth <= 0 || videoHeight <= 0 || getWidth() <= 0 || getHeight() <= 0) {
++            return;
++        }
++        float viewW = getWidth();
++        float viewH = getHeight();
++        float scale = Math.max(viewW / videoWidth, viewH / videoHeight);
++        Matrix matrix = new Matrix();
++        matrix.setScale(videoWidth * scale / viewW, videoHeight * scale / viewH, viewW / 2f, viewH / 2f);
++        texture.setTransform(matrix);
++    }
++
++    @Override
++    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
++        super.onSizeChanged(w, h, oldw, oldh);
++        applyCrop();
++    }
++
++    // ------------------------------------------------------------------ lifecycle
++
++    private void updatePlaying() {
++        boolean run = hasWindowFocus() && isAttachedToWindow();
++        if (player != null && playerReady) {
++            try {
++                if (run && !player.isPlaying()) {
++                    player.start();
++                }
++                else if (!run && player.isPlaying()) {
++                    player.pause();
++                }
++            }
++            catch (Throwable ignored) {
++            }
++        }
++        if (drawable != null && Build.VERSION.SDK_INT >= 28) {
++            AeroApi28.setPlaying(drawable, run);
++        }
++    }
++
++    @Override
++    public void onWindowFocusChanged(boolean hasWindowFocus) {
++        super.onWindowFocusChanged(hasWindowFocus);
++        updatePlaying();
++    }
++
++    @Override
++    protected void onAttachedToWindow() {
++        super.onAttachedToWindow();
++        if (uri != null && drawable == null && texture == null) {
++            reload();
++        }
++    }
++
++    @Override
++    protected void onDetachedFromWindow() {
++        super.onDetachedFromWindow();
++        release();
++    }
++
++    private void release() {
++        load++;
++        if (player != null) {
++            try {
++                player.release();
++            }
++            catch (Throwable ignored) {
++            }
++            player = null;
++        }
++        playerReady = false;
++        if (texture != null) {
++            texture.setSurfaceTextureListener(null);
++            removeView(texture);
++            texture = null;
++        }
++        if (drawable != null && Build.VERSION.SDK_INT >= 28) {
++            AeroApi28.setPlaying(drawable, false);
++        }
++        drawable = null;
++        image.setImageDrawable(null);
 +    }
 +}
 diff --git a/app/src/main/java/com/limelight/grid/GenericGridAdapter.java b/app/src/main/java/com/limelight/grid/GenericGridAdapter.java
@@ -1139,10 +2019,23 @@ index cec3de5..e534c04 100644
  
          return convertView;
 diff --git a/app/src/main/java/com/limelight/preferences/StreamSettings.java b/app/src/main/java/com/limelight/preferences/StreamSettings.java
-index 7070104..2ffe022 100644
+index 7070104..6bb069c 100644
 --- a/app/src/main/java/com/limelight/preferences/StreamSettings.java
 +++ b/app/src/main/java/com/limelight/preferences/StreamSettings.java
-@@ -12,6 +12,7 @@ import android.app.Activity;
+@@ -1,10 +1,12 @@
+ package com.limelight.preferences;
+ 
++import android.content.ActivityNotFoundException;
+ import android.content.Context;
+ import android.content.Intent;
+ import android.content.SharedPreferences;
+ import android.content.pm.PackageManager;
+ import android.content.res.Configuration;
++import android.net.Uri;
+ import android.media.MediaCodecInfo;
+ import android.os.Build;
+ import android.os.Bundle;
+@@ -12,6 +14,7 @@ import android.app.Activity;
  import android.os.Handler;
  import android.os.Vibrator;
  import android.preference.CheckBoxPreference;
@@ -1150,7 +2043,7 @@ index 7070104..2ffe022 100644
  import android.preference.ListPreference;
  import android.preference.Preference;
  import android.preference.PreferenceCategory;
-@@ -26,16 +27,20 @@ import android.view.LayoutInflater;
+@@ -26,16 +29,20 @@ import android.view.LayoutInflater;
  import android.view.View;
  import android.view.ViewGroup;
  import android.view.WindowInsets;
@@ -1171,7 +2064,7 @@ index 7070104..2ffe022 100644
  
  public class StreamSettings extends Activity {
      private PreferenceConfiguration previousPrefs;
-@@ -267,9 +272,82 @@ public class StreamSettings extends Activity {
+@@ -267,9 +274,152 @@ public class StreamSettings extends Activity {
          public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
              View view = super.onCreateView(inflater, container, savedInstanceState);
              UiHelper.applyStatusBarPadding(view);
@@ -1206,7 +2099,77 @@ index 7070104..2ffe022 100644
 +                    .unregisterOnSharedPreferenceChangeListener(aeroListener);
 +        }
 +
++        private static final int REQUEST_AERO_WALLPAPER = 4711;
++
++        private void updateWallpaperPreference() {
++            Preference choose = findPreference("pref_aero_wallpaper");
++            Preference clear = findPreference("pref_aero_wallpaper_clear");
++            if (choose == null || clear == null) {
++                return;
++            }
++            String current = PreferenceManager.getDefaultSharedPreferences(getActivity())
++                    .getString(AeroPalette.PREF_WALLPAPER, "");
++            choose.setSummary(current.isEmpty() ? R.string.summary_aero_wallpaper_none
++                                                : R.string.summary_aero_wallpaper_set);
++            clear.setEnabled(!current.isEmpty());
++        }
++
++        private void setupAeroWallpaper() {
++            Preference choose = findPreference("pref_aero_wallpaper");
++            Preference clear = findPreference("pref_aero_wallpaper_clear");
++            if (choose == null || clear == null) {
++                return;
++            }
++            choose.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
++                @Override
++                public boolean onPreferenceClick(Preference preference) {
++                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
++                    intent.addCategory(Intent.CATEGORY_OPENABLE);
++                    intent.setType("*/*");
++                    intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"image/*", "video/*"});
++                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
++                            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
++                    try {
++                        startActivityForResult(intent, REQUEST_AERO_WALLPAPER);
++                    } catch (ActivityNotFoundException e) {
++                        Toast.makeText(getActivity(), R.string.toast_aero_wallpaper_failed, Toast.LENGTH_LONG).show();
++                    }
++                    return true;
++                }
++            });
++            clear.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
++                @Override
++                public boolean onPreferenceClick(Preference preference) {
++                    PreferenceManager.getDefaultSharedPreferences(getActivity()).edit()
++                            .remove(AeroPalette.PREF_WALLPAPER).apply();
++                    updateWallpaperPreference();
++                    return true;
++                }
++            });
++            updateWallpaperPreference();
++        }
++
++        @Override
++        public void onActivityResult(int requestCode, int resultCode, Intent data) {
++            super.onActivityResult(requestCode, resultCode, data);
++            if (requestCode != REQUEST_AERO_WALLPAPER || resultCode != Activity.RESULT_OK
++                    || data == null || data.getData() == null) {
++                return;
++            }
++            Uri uri = data.getData();
++            try {
++                // Keep access to the file across restarts (not every provider supports this)
++                getActivity().getContentResolver().takePersistableUriPermission(
++                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
++            } catch (Exception ignored) {
++            }
++            PreferenceManager.getDefaultSharedPreferences(getActivity()).edit()
++                    .putString(AeroPalette.PREF_WALLPAPER, uri.toString()).apply();
++            updateWallpaperPreference();
++        }
++
 +        private void setupAeroPreferences() {
++            setupAeroWallpaper();
 +            final ListPreference preset = (ListPreference) findPreference(AeroPalette.PREF_PRESET);
 +            final ListPreference swatch = (ListPreference) findPreference("list_aero_swatch");
 +            final EditTextPreference hex = (EditTextPreference) findPreference(AeroPalette.PREF_COLOR);
@@ -1254,7 +2217,7 @@ index 7070104..2ffe022 100644
          @Override
          public void onCreate(Bundle savedInstanceState) {
              super.onCreate(savedInstanceState);
-@@ -277,6 +355,8 @@ public class StreamSettings extends Activity {
+@@ -277,6 +427,8 @@ public class StreamSettings extends Activity {
              addPreferencesFromResource(R.xml.preferences);
              PreferenceScreen screen = getPreferenceScreen();
  
@@ -1287,14 +2250,15 @@ index 2fb1ecb..ecdf398 100644
      public static void showDecoderCrashDialog(Activity activity) {
 diff --git a/app/src/main/res/values/aero_ids.xml b/app/src/main/res/values/aero_ids.xml
 new file mode 100644
-index 0000000..b197951
+index 0000000..3ece90c
 --- /dev/null
 +++ b/app/src/main/res/values/aero_ids.xml
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,10 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<resources>
 +    <!-- Frutiger Aero theme: view ids and tag keys (see com.limelight.aero.AeroTheme) -->
 +    <item name="aero_bubble_view" type="id" />
++    <item name="aero_wallpaper_view" type="id" />
 +    <item name="aero_style_signature" type="id" />
 +    <item name="aero_original_padding" type="id" />
 +    <item name="aero_original_background" type="id" />
@@ -1355,10 +2319,10 @@ index 00a68f4..805da16 100644
          <item>@string/resolution_360p</item>
          <item>@string/resolution_480p</item>
 diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
-index b20e8be..b0c1951 100644
+index b20e8be..3110efa 100644
 --- a/app/src/main/res/values/strings.xml
 +++ b/app/src/main/res/values/strings.xml
-@@ -303,4 +303,35 @@
+@@ -303,4 +303,44 @@
      <string name="analogscroll_none">None (both sticks move the mouse)</string>
      <string name="analogscroll_right">Right analog stick</string>
      <string name="analogscroll_left">Left analog stick</string>
@@ -1391,14 +2355,23 @@ index b20e8be..b0c1951 100644
 +    <string name="title_aero_glass">Glass opacity</string>
 +    <string name="summary_aero_glass">How solid the glass panels look. Lower values are clearer</string>
 +    <string name="suffix_aero_glass">%</string>
++    <string name="title_aero_blur">Glass blur</string>
++    <string name="summary_aero_blur">How frosted the glass looks. 0 gives plain translucent glass</string>
++    <string name="title_aero_wallpaper">Wallpaper (image, GIF or video)</string>
++    <string name="summary_aero_wallpaper_none">None: the Aero sky is used. Tap to pick a file</string>
++    <string name="summary_aero_wallpaper_set">Tap to choose another file</string>
++    <string name="title_aero_wallpaper_clear">Remove wallpaper</string>
++    <string name="title_aero_wallpaper_dim">Wallpaper dimming</string>
++    <string name="summary_aero_wallpaper_dim">Darkens the wallpaper so text stays readable</string>
++    <string name="toast_aero_wallpaper_failed">Could not use that file as a wallpaper</string>
 +    <string name="title_checkbox_aero_bubbles">Floating bubbles</string>
 +    <string name="summary_checkbox_aero_bubbles">Animate soap bubbles in the background. They stay still if animations are off in system settings</string>
  </resources>
 diff --git a/app/src/main/res/xml/preferences.xml b/app/src/main/res/xml/preferences.xml
-index 5b09082..718ecd8 100644
+index 5b09082..6bd4885 100644
 --- a/app/src/main/res/xml/preferences.xml
 +++ b/app/src/main/res/xml/preferences.xml
-@@ -224,6 +224,56 @@
+@@ -224,6 +224,91 @@
              android:title="@string/title_checkbox_small_icon_mode"
              android:summary="@string/summary_checkbox_small_icon_mode" />
      </PreferenceCategory>
@@ -1445,6 +2418,41 @@ index 5b09082..718ecd8 100644
 +            android:summary="@string/summary_aero_glass"
 +            android:text="@string/suffix_aero_glass"
 +            android:title="@string/title_aero_glass" />
++        <com.limelight.preferences.SeekBarPreference
++            android:key="seekbar_aero_blur"
++            android:dependency="checkbox_aero_enabled"
++            android:dialogMessage="@string/summary_aero_blur"
++            seekbar:min="0"
++            seekbar:step="5"
++            seekbar:keyStep="5"
++            android:max="100"
++            android:defaultValue="60"
++            android:summary="@string/summary_aero_blur"
++            android:text="@string/suffix_aero_glass"
++            android:title="@string/title_aero_blur" />
++        <Preference
++            android:key="pref_aero_wallpaper"
++            android:dependency="checkbox_aero_enabled"
++            android:persistent="false"
++            android:title="@string/title_aero_wallpaper"
++            android:summary="@string/summary_aero_wallpaper_none" />
++        <Preference
++            android:key="pref_aero_wallpaper_clear"
++            android:dependency="checkbox_aero_enabled"
++            android:persistent="false"
++            android:title="@string/title_aero_wallpaper_clear" />
++        <com.limelight.preferences.SeekBarPreference
++            android:key="seekbar_aero_wallpaper_dim"
++            android:dependency="checkbox_aero_enabled"
++            android:dialogMessage="@string/summary_aero_wallpaper_dim"
++            seekbar:min="0"
++            seekbar:step="5"
++            seekbar:keyStep="5"
++            android:max="80"
++            android:defaultValue="25"
++            android:summary="@string/summary_aero_wallpaper_dim"
++            android:text="@string/suffix_aero_glass"
++            android:title="@string/title_aero_wallpaper_dim" />
 +        <CheckBoxPreference
 +            android:key="checkbox_aero_bubbles"
 +            android:dependency="checkbox_aero_enabled"
