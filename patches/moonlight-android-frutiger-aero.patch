@@ -831,10 +831,10 @@ index 0000000..f7cf285
 +}
 diff --git a/app/src/main/java/com/limelight/aero/AeroGlassDrawable.java b/app/src/main/java/com/limelight/aero/AeroGlassDrawable.java
 new file mode 100644
-index 0000000..e13f526
+index 0000000..11b9ede
 --- /dev/null
 +++ b/app/src/main/java/com/limelight/aero/AeroGlassDrawable.java
-@@ -0,0 +1,307 @@
+@@ -0,0 +1,309 @@
 +package com.limelight.aero;
 +
 +import android.animation.ValueAnimator;
@@ -868,7 +868,7 @@ index 0000000..e13f526
 + */
 +final class AeroGlassDrawable extends Drawable {
 +    private static final float REST = 1f;
-+    private static final float HOVER = 1.035f;
++    private static final float HOVER = 1.04f;
 +    private static final float PRESS = 0.955f;
 +
 +    private final int tint;
@@ -966,6 +966,12 @@ index 0000000..e13f526
 +            public void onAnimationUpdate(ValueAnimator a) {
 +                float t = (Float) a.getAnimatedValue();
 +                spring = fromSpring + (targetSpring - fromSpring) * t;
++                Callback host = getCallback();
++                if (springy && host instanceof View) {
++                    // Scale the whole view so its icon / artwork / text move together with the glass
++                    ((View) host).setScaleX(spring);
++                    ((View) host).setScaleY(spring);
++                }
 +                glowAmount = Math.max(0f, Math.min(1f, fromGlow + (targetGlow - fromGlow) * Math.min(1f, t)));
 +                invalidateSelf();
 +            }
@@ -1016,9 +1022,6 @@ index 0000000..e13f526
 +        if (body.isEmpty() || tintShader == null) {
 +            return;
 +        }
-+        int save = canvas.save();
-+        canvas.scale(spring, spring, body.centerX(), body.centerY());
-+
 +        // Soft diffuse shadow: stacked translucent shapes that fade outwards
 +        if (shadow) {
 +            paint.setShader(null);
@@ -1092,7 +1095,6 @@ index 0000000..e13f526
 +        paint.setShader(null);
 +        paint.setStyle(Paint.Style.FILL);
 +
-+        canvas.restoreToCount(save);
 +    }
 +
 +    /** Draws the part of the blurred background that sits behind this view, clipped to the glass shape. */
@@ -1135,6 +1137,105 @@ index 0000000..e13f526
 +    @Override
 +    public void setColorFilter(ColorFilter colorFilter) {
 +        // Not supported
++    }
++
++    @Override
++    public int getOpacity() {
++        return PixelFormat.TRANSLUCENT;
++    }
++}
+diff --git a/app/src/main/java/com/limelight/aero/AeroGlossOverlay.java b/app/src/main/java/com/limelight/aero/AeroGlossOverlay.java
+new file mode 100644
+index 0000000..ea0bd31
+--- /dev/null
++++ b/app/src/main/java/com/limelight/aero/AeroGlossOverlay.java
+@@ -0,0 +1,93 @@
++package com.limelight.aero;
++
++import android.graphics.Canvas;
++import android.graphics.ColorFilter;
++import android.graphics.LinearGradient;
++import android.graphics.Paint;
++import android.graphics.PixelFormat;
++import android.graphics.Rect;
++import android.graphics.RectF;
++import android.graphics.Shader;
++import android.graphics.drawable.Drawable;
++
++/**
++ * Glass finish drawn on top of opaque artwork (app box art): a soft colour wash, a sheen that fades
++ * out, a faint inner glow and the specular rim. It lets artwork look like it sits under the glass.
++ */
++final class AeroGlossOverlay extends Drawable {
++    private final int tint;
++    private final float radius;
++    private final float dp;
++    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final RectF body = new RectF();
++    private final RectF tmp = new RectF();
++    private Shader washShader;
++    private Shader sheenShader;
++    private Shader rimShader;
++
++    AeroGlossOverlay(int tint, float radius, float dp) {
++        this.tint = tint;
++        this.radius = radius;
++        this.dp = dp;
++    }
++
++    @Override
++    protected void onBoundsChange(Rect b) {
++        body.set(b);
++        if (body.isEmpty()) {
++            return;
++        }
++        washShader = new LinearGradient(0, body.top, 0, body.bottom,
++                AeroColors.withAlpha(AeroColors.lighter(tint, 1.3f), 0.26f),
++                AeroColors.withAlpha(AeroColors.darker(tint, 1.2f), 0.30f), Shader.TileMode.CLAMP);
++        sheenShader = new LinearGradient(0, body.top, 0, body.bottom,
++                new int[] {0x4dffffff, 0x00ffffff, 0x00ffffff, AeroColors.withAlpha(AeroColors.lighter(tint, 1.7f), 0.22f)},
++                new float[] {0f, 0.42f, 0.8f, 1f}, Shader.TileMode.CLAMP);
++        rimShader = new LinearGradient(body.left, body.top, body.right, body.bottom,
++                new int[] {0xffffffff, 0xccffffff, 0x2effffff, 0xb3ffffff, 0xf2ffffff},
++                new float[] {0f, 0.18f, 0.5f, 0.82f, 1f}, Shader.TileMode.CLAMP);
++    }
++
++    @Override
++    public void draw(Canvas canvas) {
++        if (body.isEmpty() || washShader == null) {
++            return;
++        }
++        paint.setStyle(Paint.Style.FILL);
++        paint.setShader(washShader);
++        canvas.drawRoundRect(body, radius, radius, paint);
++        paint.setShader(sheenShader);
++        canvas.drawRoundRect(body, radius, radius, paint);
++        paint.setShader(null);
++
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeWidth(1.5f * dp);
++        for (int i = 0; i < 3; i++) {
++            float off = (1f + i * 1.5f) * dp;
++            tmp.set(body.left + off, body.top + off, body.right - off, body.bottom - off);
++            paint.setColor(AeroColors.withAlpha(0xffffffff, 0.12f - i * 0.04f));
++            canvas.drawRoundRect(tmp, Math.max(0f, radius - off), Math.max(0f, radius - off), paint);
++        }
++
++        paint.setStrokeWidth(1.5f * dp);
++        paint.setShader(rimShader);
++        tmp.set(body);
++        tmp.inset(0.75f * dp, 0.75f * dp);
++        canvas.drawRoundRect(tmp, Math.max(0f, radius - 0.75f * dp), Math.max(0f, radius - 0.75f * dp), paint);
++        paint.setShader(null);
++        paint.setStyle(Paint.Style.FILL);
++    }
++
++    @Override
++    public void setAlpha(int alpha) {
++    }
++
++    @Override
++    public void setColorFilter(ColorFilter colorFilter) {
 +    }
 +
 +    @Override
@@ -1310,10 +1411,10 @@ index 0000000..8f7b2c8
 +}
 diff --git a/app/src/main/java/com/limelight/aero/AeroTheme.java b/app/src/main/java/com/limelight/aero/AeroTheme.java
 new file mode 100644
-index 0000000..d563b46
+index 0000000..47269e7
 --- /dev/null
 +++ b/app/src/main/java/com/limelight/aero/AeroTheme.java
-@@ -0,0 +1,320 @@
+@@ -0,0 +1,384 @@
 +package com.limelight.aero;
 +
 +import android.app.Activity;
@@ -1325,7 +1426,10 @@ index 0000000..d563b46
 +import android.net.Uri;
 +import android.util.TypedValue;
 +import android.view.View;
++import android.graphics.Outline;
 +import android.view.ViewGroup;
++import android.view.ViewOutlineProvider;
++import android.widget.ImageView;
 +import android.view.Window;
 +import android.widget.AbsListView;
 +import android.widget.FrameLayout;
@@ -1547,6 +1651,9 @@ index 0000000..d563b46
 +        if (!palette.enabled) {
 +            if (tagged != null) {
 +                tile.setBackground(null);
++                tile.setScaleX(1f);
++                tile.setScaleY(1f);
++                styleArtwork(tile, null, 0f, 0f);
 +                tile.setTag(R.id.aero_style_signature, null);
 +            }
 +            return;
@@ -1557,9 +1664,67 @@ index 0000000..d563b46
 +            return;
 +        }
 +        float dp = context.getResources().getDisplayMetrics().density;
++        tile.setScaleX(1f);
++        tile.setScaleY(1f);
 +        tile.setBackground(glass(palette.accent, palette, dp,
 +                largeTile ? PC_TILE_RADIUS : APP_TILE_RADIUS, TILE_INSET, false, true, true));
++        // App tiles are opaque box art: round it and put the glass finish on top of it
++        styleArtwork(tile, largeTile ? null : palette, dp, APP_TILE_RADIUS - 3f);
 +        tile.setTag(R.id.aero_style_signature, signature);
++    }
++
++    /** Keeps the layout listener and overlay of one tile together so they can be removed again. */
++    private static final class TileOverlay implements View.OnLayoutChangeListener {
++        final View art;
++        final AeroGlossOverlay overlay;
++
++        TileOverlay(View art, AeroGlossOverlay overlay) {
++            this.art = art;
++            this.overlay = overlay;
++        }
++
++        @Override
++        public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
++            overlay.setBounds(art.getLeft(), art.getTop(), art.getRight(), art.getBottom());
++        }
++    }
++
++    /**
++     * Rounds the artwork of an app tile and adds the gloss overlay; with a null palette it undoes both.
++     */
++    private static void styleArtwork(View tile, AeroPalette palette, float dp, final float radiusDp) {
++        Object old = tile.getTag(R.id.aero_tile_overlay);
++        if (old instanceof TileOverlay) {
++            tile.removeOnLayoutChangeListener((TileOverlay) old);
++            tile.getOverlay().remove(((TileOverlay) old).overlay);
++            tile.setTag(R.id.aero_tile_overlay, null);
++        }
++        View art = tile.findViewById(R.id.grid_image);
++        if (!(art instanceof ImageView)) {
++            return;
++        }
++        if (palette == null) {
++            art.setClipToOutline(false);
++            art.setOutlineProvider(ViewOutlineProvider.BACKGROUND);
++            return;
++        }
++        final float radius = radiusDp * dp;
++        art.setOutlineProvider(new ViewOutlineProvider() {
++            @Override
++            public void getOutline(View view, Outline outline) {
++                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
++            }
++        });
++        art.setClipToOutline(true);
++
++        AeroGlossOverlay gloss = new AeroGlossOverlay(palette.accent, radius, dp);
++        TileOverlay holder = new TileOverlay(art, gloss);
++        tile.getOverlay().add(gloss);
++        tile.addOnLayoutChangeListener(holder);
++        tile.setTag(R.id.aero_tile_overlay, holder);
++        if (art.getWidth() > 0) {
++            gloss.setBounds(art.getLeft(), art.getTop(), art.getRight(), art.getBottom());
++        }
 +    }
 +
 +    /** The stock list selector would paint a grey square under our glass, so hide it while themed. */
@@ -2018,6 +2183,27 @@ index cec3de5..e534c04 100644
          populateView(convertView, imgView, prgView, txtView, overlayView, itemList.get(i));
  
          return convertView;
+diff --git a/app/src/main/java/com/limelight/grid/PcGridAdapter.java b/app/src/main/java/com/limelight/grid/PcGridAdapter.java
+index 91e313f..d62c79a 100644
+--- a/app/src/main/java/com/limelight/grid/PcGridAdapter.java
++++ b/app/src/main/java/com/limelight/grid/PcGridAdapter.java
+@@ -8,6 +8,7 @@ import android.widget.TextView;
+ 
+ import com.limelight.PcView;
+ import com.limelight.R;
++import com.limelight.aero.AeroPalette;
+ import com.limelight.nvstream.http.ComputerDetails;
+ import com.limelight.nvstream.http.PairingManager;
+ import com.limelight.preferences.PreferenceConfiguration;
+@@ -50,7 +51,7 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
+ 
+     @Override
+     public void populateView(View parentView, ImageView imgView, ProgressBar prgView, TextView txtView, ImageView overlayView, PcView.ComputerObject obj) {
+-        imgView.setImageResource(R.drawable.ic_computer);
++        imgView.setImageResource(AeroPalette.isEnabled(imgView.getContext()) ? R.drawable.ic_computer_aero : R.drawable.ic_computer);
+         if (obj.details.state == ComputerDetails.State.ONLINE) {
+             imgView.setAlpha(1.0f);
+         }
 diff --git a/app/src/main/java/com/limelight/preferences/StreamSettings.java b/app/src/main/java/com/limelight/preferences/StreamSettings.java
 index 7070104..6bb069c 100644
 --- a/app/src/main/java/com/limelight/preferences/StreamSettings.java
@@ -2248,17 +2434,57 @@ index 2fb1ecb..ecdf398 100644
      }
  
      public static void showDecoderCrashDialog(Activity activity) {
+diff --git a/app/src/main/res/drawable/ic_computer_aero.xml b/app/src/main/res/drawable/ic_computer_aero.xml
+new file mode 100644
+index 0000000..ab8ceb6
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_computer_aero.xml
+@@ -0,0 +1,33 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Blue iMac G3 in Frutiger Aero style, built from flat translucent layers so it renders on API 21+ -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="125dp"
++    android:height="125dp"
++    android:viewportWidth="100"
++    android:viewportHeight="100">
++    <path android:pathData="M20,93 C20,89 80,89 80,93 C80,97 20,97 20,93 Z" android:fillColor="#001a33" android:fillAlpha="0.2" />
++    <path android:pathData="M34,82 L66,82 L72,91 C72,93 28,93 28,91 Z" android:fillColor="#0b6db4" />
++    <path android:pathData="M34,82 L66,82 L68,85 L32,85 Z" android:fillColor="#000000" android:fillAlpha="0.18" />
++    <path android:pathData="M27,12 C41,8 59,8 73,12 C82,14 87,21 87,30 L89,63 C89,76 80,83 70,83 L30,83 C20,83 11,76 11,63 L13,30 C13,21 18,14 27,12 Z" android:fillColor="#1a9ad6" />
++    <path android:pathData="M12,52 L88,52 L89,63 C89,76 80,83 70,83 L30,83 C20,83 11,76 11,63 Z" android:fillColor="#0a5fa8" android:fillAlpha="0.55" />
++    <path android:pathData="M27,12 C41,8 59,8 73,12 C82,14 87,21 87,30 L86,40 L14,40 L13,30 C13,21 18,14 27,12 Z" android:fillColor="#8fe6f7" android:fillAlpha="0.45" />
++    <path android:pathData="M16,32 C16,22 20,16 27,14 C22,22 21,40 22,62 C22,70 25,76 30,80 C20,78 15,72 14,63 Z" android:fillColor="#ffffff" android:fillAlpha="0.22" />
++    <path android:pathData="M24,21 L76,21 C81,21 84,24 84,29 L84,58 C84,63 81,66 76,66 L24,66 C19,66 16,63 16,58 L16,29 C16,24 19,21 24,21 Z" android:fillColor="#e9fbff" android:fillAlpha="0.8" />
++    <path android:pathData="M26,25 L74,25 C77,25 80,27 80,30 L80,57 C80,60 77,62 74,62 L26,62 C23,62 20,60 20,57 L20,30 C20,27 23,25 26,25 Z" android:fillColor="#0a4f9e" />
++    <path android:pathData="M26,25 L74,25 C77,25 80,27 80,30 L80,44 L20,44 L20,30 C20,27 23,25 26,25 Z" android:fillColor="#3fd0ee" android:fillAlpha="0.75" />
++    <path android:pathData="M30,25 L42,25 L34,62 L22,62 Z" android:fillColor="#ffffff" android:fillAlpha="0.1" />
++    <path android:pathData="M52,25 L60,25 L56,62 L46,62 Z" android:fillColor="#ffffff" android:fillAlpha="0.08" />
++    <path android:pathData="M37,44 C41,36 55,36 60,44 C55,52 41,52 37,44 Z" android:fillColor="#ffb938" />
++    <path android:pathData="M59,44 L68,37 L66,44 L68,51 Z" android:fillColor="#ff9a1f" />
++    <path android:pathData="M44,38.5 C48,36.5 54,37.5 55,40.5 C50,39 47,39 44,38.5 Z" android:fillColor="#ffffff" android:fillAlpha="0.45" />
++    <path android:pathData="M42,43 m-1.5,0 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0 Z" android:fillColor="#ffffff" />
++    <path android:pathData="M42.4,43 m-0.7,0 a0.7,0.7 0 1,0 1.4,0 a0.7,0.7 0 1,0 -1.4,0 Z" android:fillColor="#05263f" />
++    <path android:pathData="M30,54 m-2.4,0 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" android:fillColor="#ffffff" android:fillAlpha="0.45" />
++    <path android:pathData="M70,32 m-1.8,0 a1.8,1.8 0 1,0 3.6,0 a1.8,1.8 0 1,0 -3.6,0 Z" android:fillColor="#ffffff" android:fillAlpha="0.5" />
++    <path android:pathData="M66,54 m-1.3,0 a1.3,1.3 0 1,0 2.6,0 a1.3,1.3 0 1,0 -2.6,0 Z" android:fillColor="#ffffff" android:fillAlpha="0.4" />
++    <path android:pathData="M26,25 L74,25 C77,25 80,27 80,30 L80,33 C60,40 40,41 20,48 L20,30 C20,27 23,25 26,25 Z" android:fillColor="#ffffff" android:fillAlpha="0.3" />
++    <path android:pathData="M32,72 L56,72 C57.5,72 57.5,75 56,75 L32,75 C30.5,75 30.5,72 32,72 Z" android:fillColor="#043a6b" android:fillAlpha="0.55" />
++    <path android:pathData="M69,73.5 m-2.2,0 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0 Z" android:fillColor="#d8fbff" android:fillAlpha="0.9" />
++    <path android:pathData="M24,16 C38,11 62,11 76,16 C66,19 34,19 24,16 Z" android:fillColor="#ffffff" android:fillAlpha="0.55" />
++    <path android:pathData="M27,12 C41,8 59,8 73,12 C82,14 87,21 87,30 L89,63 C89,76 80,83 70,83 L30,83 C20,83 11,76 11,63 L13,30 C13,21 18,14 27,12 Z" android:fillColor="#00000000" android:strokeColor="#ffffff" android:strokeAlpha="0.75" android:strokeWidth="1.3" />
++</vector>
 diff --git a/app/src/main/res/values/aero_ids.xml b/app/src/main/res/values/aero_ids.xml
 new file mode 100644
-index 0000000..3ece90c
+index 0000000..9bfc137
 --- /dev/null
 +++ b/app/src/main/res/values/aero_ids.xml
-@@ -0,0 +1,10 @@
+@@ -0,0 +1,11 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<resources>
 +    <!-- Frutiger Aero theme: view ids and tag keys (see com.limelight.aero.AeroTheme) -->
 +    <item name="aero_bubble_view" type="id" />
 +    <item name="aero_wallpaper_view" type="id" />
++    <item name="aero_tile_overlay" type="id" />
 +    <item name="aero_style_signature" type="id" />
 +    <item name="aero_original_padding" type="id" />
 +    <item name="aero_original_background" type="id" />
