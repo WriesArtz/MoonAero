@@ -24,6 +24,7 @@
         <file>gui/AeroBackground.qml</file>
         <file>gui/AeroGroupBox.qml</file>
         <file>gui/AeroGlassFx.qml</file>
+        <file>gui/AeroArtFrame.qml</file>
         <file>gui/AeroBackdropBlur.qml</file>
         <file>gui/AeroWallpaperImage.qml</file>
         <file>gui/AeroWallpaperVideo.qml</file>

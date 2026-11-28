@@ -91,3 +91,12 @@ loaded, the sky stays visible. Videos are silent and loop. `QT += multimedia` wa
 video codecs depend on the platform backend (macOS: AVFoundation, so H.264/HEVC .mp4/.mov are the safest).
 
 New settings keys: `aeroblur`, `aerowallpaper`, `aerowallpaperdim`.
+
+## PC icon, app tiles and app icon (v3)
+
+* **PC tiles** show the aquarium iMac G3 picture (`app/res/aero_pc.png`, same image as the Android build)
+  instead of the flat monitor while the theme is on; offline PCs are dimmed.
+* **App tiles** round the box art and put the glass finish on top (colour wash, fading sheen, inner glow,
+  specular rim) via `gui/AeroArtFrame.qml`, loaded lazily so the app still runs without `QtQuick.Effects`.
+* **App icon:** `moonlight.icns` / `moonlight.ico` were regenerated from the new Frutiger Aero orb icon used
+  by the Android build.

@@ -74,6 +74,8 @@ CenteredGridView {
         width: 220; height: 287;
         grid: appGrid
 
+        AeroPalette { id: aero }
+
         property alias appContextMenu: appContextMenuLoader.item
         property alias appNameText: appNameTextLoader.item
 
@@ -114,6 +116,15 @@ CenteredGridView {
             ToolTip.delay: 1000
             ToolTip.timeout: 5000
             ToolTip.visible: (parent.hovered || parent.highlighted) && (!appNameText || appNameText.truncated)
+        }
+
+        // Frutiger Aero: round the box art and put the glass finish on top of it
+        Loader {
+            active: aero.enabled
+            anchors.fill: appIcon
+            z: 1
+            source: "AeroArtFrame.qml"
+            onLoaded: item.target = appIcon
         }
 
         Loader {

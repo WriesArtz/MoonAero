@@ -110,12 +110,17 @@ CenteredGridView {
         width: 300; height: 320;
         grid: pcGrid
 
+        AeroPalette { id: aero }
+
         property alias pcContextMenu : pcContextMenuLoader.item
 
         Image {
             id: pcIcon
             anchors.horizontalCenter: parent.horizontalCenter
-            source: "qrc:/res/desktop_windows-48px.svg"
+            // Frutiger Aero: aquarium iMac G3 instead of the flat monitor
+            source: aero.enabled ? "qrc:/res/aero_pc.png" : "qrc:/res/desktop_windows-48px.svg"
+            fillMode: Image.PreserveAspectFit
+            opacity: (aero.enabled && !model.online && !model.statusUnknown) ? 0.45 : 1.0
             sourceSize {
                 width: 200
                 height: 200
