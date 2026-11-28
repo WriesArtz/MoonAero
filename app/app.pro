@@ -157,8 +157,15 @@ win32:!winrt {
 }
 macx {
     !disable-prebuilts {
-        LIBS += -lssl.3 -lcrypto.3 -lavcodec.63 -lavutil.61 -lswscale.10 -lopus.0 -lSDL2 -lSDL2_ttf -lplacebo
-        CONFIG += discord-rpc libplacebo
+        LIBS += -lssl.3 -lcrypto.3 -lavcodec.63 -lavutil.61 -lswscale.10 -lopus.0 -lSDL2 -lSDL2_ttf
+        CONFIG += discord-rpc
+
+        # The libplacebo/MoltenVK (Vulkan) renderer aborts on old Macs whose Metal driver is "MetalOld"
+        # (e.g. 2012 models). Build with "qmake6 CONFIG+=disable-libplacebo" to use the VideoToolbox / SDL renderers.
+        !disable-libplacebo {
+            LIBS += -lplacebo
+            CONFIG += libplacebo
+        }
     }
 
     LIBS += -lobjc -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreGraphics -framework CoreMedia -framework AppKit -framework Metal -framework QuartzCore
