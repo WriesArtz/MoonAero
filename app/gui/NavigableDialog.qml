@@ -1,11 +1,23 @@
 import QtQuick 2.0
 import QtQuick.Controls 2.5
+import QtQuick.Controls.Material 2.2
 
 Dialog {
     modal: true
     anchors.centerIn: Overlay.overlay
 
+    id: dialogRoot
+
     AeroPalette { id: aero }
+
+    // The dialog buttons use the accent colour for their text, which is invisible on blue glass.
+    // Make it white while the Aero theme is on.
+    Binding {
+        target: dialogRoot.Material
+        property: "accent"
+        value: "#ffffff"
+        when: aero.enabled
+    }
 
     // Stock Material dialog surface, or Aero glass when the theme is on
     background: Item {
