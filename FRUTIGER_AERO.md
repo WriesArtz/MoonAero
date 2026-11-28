@@ -107,6 +107,8 @@ On Macs with the legacy Metal driver (for example a 2012 MacBook Pro) the app ca
 launch inside `libMoltenVK` (`MVKPhysicalDevice::initMetalFeatures`, called from the libplacebo renderer).
 This is an upstream Moonlight issue, not caused by the theme. Build without the Vulkan renderer:
 
+    touch disable-libplacebo
     make distclean
-    qmake6 CONFIG+=disable-libplacebo moonlight-qt.pro
+    qmake6 moonlight-qt.pro
     make release
+    grep -c LIBPLACEBO app/Makefile.Release     # must print 0

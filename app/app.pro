@@ -162,6 +162,10 @@ macx {
 
         # The libplacebo/MoltenVK (Vulkan) renderer aborts on old Macs whose Metal driver is "MetalOld"
         # (e.g. 2012 models). Build with "qmake6 CONFIG+=disable-libplacebo" to use the VideoToolbox / SDL renderers.
+        # Command-line CONFIG values are not always passed down to this sub-project, so an empty marker file
+        # named "disable-libplacebo" next to moonlight-qt.pro works too.
+        exists($$PWD/../disable-libplacebo): CONFIG += disable-libplacebo
+
         !disable-libplacebo {
             LIBS += -lplacebo
             CONFIG += libplacebo
